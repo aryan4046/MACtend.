@@ -89,5 +89,6 @@ export async function toggleAttendance(data: {
   return await response.json();
 }
 
-// CSV Export
-export const EXPORT_URL = `http://${window.location.hostname}:5000/api/export/csv`;
+// Export URLs
+export const EXPORT_CSV_URL = `http://${window.location.hostname}:5000/api/export/csv`;
+export const EXPORT_EXCEL_URL = `http://${window.location.hostname}:5000/api/export/excel`;

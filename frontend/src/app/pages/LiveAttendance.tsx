@@ -3,13 +3,26 @@ import { Link } from "react-router";
 import { 
   Users, Download, Check, X, Search, RefreshCw, AlertCircle, Laptop
 } from "lucide-react";
-import { getAttendance, toggleAttendance, getSessionStatus, EXPORT_URL } from "../api";
+import { getAttendance, toggleAttendance, getSessionStatus, EXPORT_EXCEL_URL, EXPORT_CSV_URL } from "../api";
+import { CustomModal } from "../components/CustomModal";
 
 export function LiveAttendance() {
   const [logs, setLogs] = useState<any[]>([]);
   const [sessionStatus, setSessionStatus] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+
+  // Modal State
+  const [modal, setModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info" as any
+  });
+
+  const showModal = (title: string, message: string, type: any = "info") => {
+    setModal({ isOpen: true, title, message, type });
+  };
 
   useEffect(() => {
     fetchLogs();
@@ -55,7 +68,7 @@ export function LiveAttendance() {
       });
     } catch (err) {
       // Revert if failed
-      alert("Failed to toggle attendance status.");
+      showModal("Action Failed", "We couldn't toggle the attendance status. Please check your network connection.", "error");
       fetchLogs();
     }
   };
@@ -80,12 +93,12 @@ export function LiveAttendance() {
             <RefreshCw size={20} className={isLoading ? "animate-spin text-blue-600" : ""} />
           </button>
           <a
-            href={EXPORT_URL}
+            href={EXPORT_EXCEL_URL}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2 rounded-xl text-sm font-semibold transition-colors shadow-sm"
+            className="flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white hover:opacity-90 px-4 py-2 rounded-xl text-sm font-semibold transition-all shadow-md shadow-emerald-500/20"
           >
-            <Download size={16} /> Export CSV
+            <Download size={16} /> Export Excel (.xlsx)
           </a>
         </div>
       </div>
@@ -197,6 +210,14 @@ export function LiveAttendance() {
           </div>
         )}
       </div>
+
+      <CustomModal 
+        isOpen={modal.isOpen}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+      />
     </div>
   );
 }

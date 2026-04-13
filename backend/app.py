@@ -543,27 +543,116 @@ def session_status():
 
 
 
+@app.route("/api/export/excel", methods=["GET"])
+def export_excel():
+    import pandas as pd
+    
+    # Get the latest session parameters
+    session = db.active_session.find_one({"id": 1})
+    if not session:
+        return jsonify({"success": False, "error": "No session history found"}), 404
+        
+    programme = session.get("programme")
+    college = session.get("college")
+    branch = session.get("branch")
+    semester = session.get("semester")
+    sections = session.get("sections", [])
+    subject = session.get("subject")
+    
+    # 🔍 DYNAMIC DATE DETECTION
+    # Instead of forcing 'today', find the latest date attendance was recorded for this subject
+    latest_log = db.attendance.find_one({"subject": subject}, sort=[("date", -1)])
+    report_date = latest_log.get("date") if latest_log else datetime.now().strftime("%Y-%m-%d")
+
+    # 1. Fetch ALL students that SHOULD be in this session
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+    
+    student_query = {
+        "programme": ci_reg(programme),
+        "college": ci_reg(college),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(semester),
+        "$or": section_queries
+    }
+    all_students = list(db.students.find(student_query))
+    
+    # 2. Fetch all logs for this specific subject and determined date
+    logs = list(db.attendance.find({
+        "subject": subject,
+        "date": report_date
+    }))
+    present_ids = {str(l["student_id"]) for l in logs}
+
+    present_data = []
+    absent_data = []
+
+    for s in all_students:
+        s_id = str(s["_id"])
+        row = {
+            "Student Name": s.get("name"),
+            "Enrollment Number": str(s.get("enrollment_number")),
+            "College": s.get("college"),
+            "Programme": s.get("programme"),
+            "Branch": s.get("branch"),
+            "Section": s.get("section"),
+            "Date": report_date,
+            "Status": "PRESENT" if s_id in present_ids else "ABSENT"
+        }
+        
+        if s_id in present_ids:
+            log = next((l for l in logs if str(l["student_id"]) == s_id), {})
+            row["Time Seen"] = log.get("time", "--:--")
+            row["Method"] = log.get("source", "iot")
+            present_data.append(row)
+        else:
+            absent_data.append(row)
+
+    # 3. Create Excel with two sheets
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df_present = pd.DataFrame(present_data)
+        df_absent = pd.DataFrame(absent_data)
+        
+        if not df_present.empty:
+            df_present.sort_values(by="Student Name", inplace=True)
+            df_present.to_excel(writer, sheet_name='Present Students', index=False)
+            
+        if not df_absent.empty:
+            df_absent.sort_values(by="Student Name", inplace=True)
+            df_absent.to_excel(writer, sheet_name='Absent Students', index=False)
+        
+        if df_present.empty and df_absent.empty:
+            # Fallback: Just show all history if no filtering matches
+            all_logs = list(db.attendance.find({"subject": subject}).sort("date", -1))
+            if all_logs:
+                history = []
+                for l in all_logs:
+                    st = db.students.find_one({"_id": l["student_id"]})
+                    history.append({
+                        "Name": st.get("name") if st else "Unknown",
+                        "Enrollment": str(st.get("enrollment_number")) if st else "N/A",
+                        "Date": l.get("date"),
+                        "Time": l.get("time")
+                    })
+                pd.DataFrame(history).to_excel(writer, sheet_name='Full Attendance History', index=False)
+            else:
+                pd.DataFrame([{"Message": "No students or logs found for this session."}]).to_excel(writer, sheet_name='Empty Report')
+
+    output.seek(0)
+    
+    file_name = f"Attendance_{subject}_{report_date}.xlsx"
+    response = Response(
+        output.read(),
+        mimetype="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    response.headers["Content-Disposition"] = f"attachment; filename={file_name}"
+    return response
+
 @app.route("/api/export/csv", methods=["GET"])
 def export_csv():
-    cursor = db.attendance.find().sort("_id", 1)
-    
-    output = io.StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["Student Name", "Enrollment Number", "Subject", "Date", "Time"])
-    
-    for al in cursor:
-        student = db.students.find_one({"_id": al.get("student_id")})
-        writer.writerow([
-            student.get("name") if student else "Unknown",
-            student.get("enrollment_number") if student else "N/A",
-            al.get("subject"),
-            al.get("date"),
-            al.get("time")
-        ])
-    
-    response = Response(output.getvalue(), mimetype="text/csv")
-    response.headers["Content-Disposition"] = "attachment; filename=attendance_report.csv"
-    return response
+    # Maintain CSV as a legacy single-list backup
+    cursor = db.attendance.find().sort("date", -1).sort("time", -1)
 
 @app.route("/api/sections", methods=["GET"])
 def get_sections():

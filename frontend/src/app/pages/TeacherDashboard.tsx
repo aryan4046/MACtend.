@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { Link } from "react-router";
+import { Link, useNavigate } from "react-router";
 import { 
   PlayCircle, Square, Clock, Users, Laptop, Radio, Activity,
   ChevronRight, CalendarDays
@@ -11,8 +11,10 @@ import {
   startSession, 
   stopSession 
 } from "../api";
+import { CustomModal } from "../components/CustomModal";
 
 export function TeacherDashboard() {
+  const navigate = useNavigate();
   const [isActive, setIsActive] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [stats, setStats] = useState({ total_students: 0, present: 0, absent: 0, live_devices: 0 });
@@ -27,6 +29,19 @@ export function TeacherDashboard() {
   const [availableSections, setAvailableSections] = useState<string[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [isStarting, setIsStarting] = useState(false);
+
+  // Modal State
+  const [modal, setModal] = useState({
+    isOpen: false,
+    title: "",
+    message: "",
+    type: "info" as any,
+    onConfirm: undefined as (() => void) | undefined
+  });
+
+  const showModal = (title: string, message: string, type: any = "info", onConfirm?: () => void) => {
+    setModal({ isOpen: true, title, message, type, onConfirm });
+  };
 
   useEffect(() => {
     checkStatus();
@@ -55,6 +70,10 @@ export function TeacherDashboard() {
         setRemainingSeconds(prev => {
           if (prev <= 1) {
             setIsActive(false); // Auto-stop UI
+            // Redirect after 1 second so the user sees 0:00 for a moment
+            setTimeout(() => {
+               navigate("/admin/attendance");
+            }, 1000);
             return 0;
           }
           return prev - 1;
@@ -144,25 +163,32 @@ export function TeacherDashboard() {
         setRemainingSeconds(300); // 5 mins
         pollStats();
       } else {
-        alert("Failed to start session: " + (res.message || res.error || "Unknown error"));
+        showModal("Session Failed", res.message || res.error || "Unknown error", "error");
       }
     } catch (err) {
       console.error(err);
-      alert("Network error. Cannot reach backend.");
+      showModal("Network Error", "Cannot reach backend. Please check your connection.", "error");
     } finally {
       setIsStarting(false);
     }
   };
 
   const handleStop = async () => {
-    if (!confirm("Are you sure you want to stop the active session?")) return;
-    try {
-      await stopSession();
-      setIsActive(false);
-      setStats({ total_students: 0, present: 0, absent: 0, live_devices: 0 });
-    } catch (err) {
-      console.error(err);
-    }
+    showModal(
+        "Stop Session?", 
+        "Are you sure you want to stop the active session? All live device tracking will pause.", 
+        "confirm",
+        async () => {
+            try {
+                await stopSession();
+                setIsActive(false);
+                setStats({ total_students: 0, present: 0, absent: 0, live_devices: 0 });
+                navigate("/admin/attendance"); // Direct jump to live log
+            } catch (err) {
+                console.error(err);
+            }
+        }
+    );
   };
 
   return (
@@ -363,6 +389,15 @@ export function TeacherDashboard() {
 
       </div>
     </div>
-  </div>
-);
+
+      <CustomModal 
+        isOpen={modal.isOpen}
+        title={modal.title}
+        message={modal.message}
+        type={modal.type}
+        onConfirm={modal.onConfirm}
+        onClose={() => setModal({ ...modal, isOpen: false })}
+      />
+    </div>
+  );
 }
