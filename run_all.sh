@@ -1,124 +1,50 @@
 #!/bin/bash
 
-# Force directory to where the script is located
-cd "$(dirname "$0")" || exit 1
+# =============================================================
+#      ___  ___  ___  _____               _
+#      |  \/  | / _ \/  __ \             | |
+#      | .  . |/ /_\ \ /  \/_ __ ___   __| |
+#      | | | | |  _  | |   | '__/ _ \ / _` |
+#      | | | | | | | | \__/\ | |  __/ (_| |
+#      \_| |_/\_| |_/\____/\_|  \___|\__,_|
+#
+#          Smart IoT Attendance System (LINUX)
+# =============================================================
 
-echo "===================================================="
-echo "     Smart IoT Attendance System Launcher (Linux)   "
-echo "===================================================="
-echo ""
+echo -e "\e[1;34m[!] Checking environment...\e[0m"
 
-# -----------------------------
-# 0. START DOCKER + MONGODB
-# -----------------------------
-
-echo "[0/4] Checking MongoDB Docker container..."
-
-# Check if Docker is running
-if ! systemctl is-active --quiet docker; then
-    echo "[!] Docker is not running. Starting Docker..."
-    sudo systemctl start docker
-    sleep 3
-fi
-
-# Check if Mongo container exists
-if ! sudo docker ps -a --format '{{.Names}}' | grep -q "^mongodb$"; then
-    echo "[!] MongoDB container not found. Creating new one..."
-    sudo docker run -d \
-        --name mongodb \
-        -p 27017:27017 \
-        mongo:7
-    sleep 5
+# Check if .venv exists, create if not
+if [ ! -d "backend/.venv" ]; then
+    echo -e "\e[1;33m[!] Creating Python Virtual Environment...\e[0m"
+    python3 -m venv backend/.venv
+    source backend/.venv/bin/activate
+    pip install -r backend/requirements.txt
 else
-    # If exists but stopped, start it
-    if ! sudo docker ps --format '{{.Names}}' | grep -q "^mongodb$"; then
-        echo "[!] Starting existing MongoDB container..."
-        sudo docker start mongodb
-        sleep 5
-    fi
+    source backend/.venv/bin/activate
 fi
 
-# Wait until MongoDB is ready
-echo "[!] Waiting for MongoDB to be ready..."
-until sudo docker exec mongodb mongosh --eval "db.runCommand({ ping: 1 })" &>/dev/null
-do
-    sleep 2
-done
+echo -e "\e[1;32m[OK] Environment verified.\e[0m"
 
-echo "[✓] MongoDB is running."
+echo -e "\e[1;34m[!] Cleaning up old processes...\e[0m"
+pkill -f "python3 backend/app.py"
+pkill -f "python3 backend/scanner.py"
+pkill -f "vite"
 
-# -----------------------------
-# 1. Setup Python Virtual Environment
-# -----------------------------
+echo -e "\e[1;36m[1/3] Starting Backend Server (Port 5000)...\e[0m"
+python3 backend/app.py > backend_log.txt 2>&1 &
 
-VENV_DIR="venv"
-if [ ! -d "$VENV_DIR" ]; then
-    echo "[!] Virtual environment not found. Creating one..."
-    python3 -m venv $VENV_DIR
-    echo "[!] Installing dependencies..."
-    $VENV_DIR/bin/pip install -r requirements.txt
-fi
+echo -e "\e[1;36m[2/3] Starting Attendance Scanner Engine...\e[0m"
+# Scanner might need sudo for certain low-level network operations
+sudo backend/.venv/bin/python3 backend/scanner.py > scanner_log.txt 2>&1 &
 
-# Install frontend deps if missing
-if [ ! -d "frontend/node_modules" ]; then
-    echo "[!] node_modules not found. Installing frontend dependencies..."
-    cd frontend && npm install && cd ..
-fi
+echo -e "\e[1;36m[3/3] Starting Frontend (Vite UI)...\e[0m"
+cd frontend && npm run dev -- --host > ../frontend_log.txt 2>&1 &
 
-# -----------------------------
-# CLEANUP FUNCTION
-# -----------------------------
-
-cleanup() {
-    echo ""
-    echo "Shutting down services..."
-    kill $BACKEND_PID 2>/dev/null
-    kill $SCANNER_PID 2>/dev/null
-    kill $FRONTEND_PID 2>/dev/null
-    exit 0
-}
-trap cleanup SIGINT SIGTERM
-
-# -----------------------------
-# 2. Launch Backend
-# -----------------------------
-
-echo "[1/4] Starting Backend (Port 5000)..."
-cd backend
-../$VENV_DIR/bin/python app.py &
-BACKEND_PID=$!
-cd ..
-sleep 2
-
-# -----------------------------
-# 3. Launch Scanner
-# -----------------------------
-
-echo "[2/4] Starting Attendance Scanner..."
-cd backend
-../$VENV_DIR/bin/python scanner.py &
-SCANNER_PID=$!
-cd ..
-sleep 2
-
-# -----------------------------
-# 4. Launch Frontend
-# -----------------------------
-
-echo "[3/4] Starting Frontend (Vite UI)..."
-cd frontend
-npm run dev -- --host 0.0.0.0 &
-FRONTEND_PID=$!
-cd ..
-
-echo ""
-echo "----------------------------------------------------"
-echo "ALL COMPONENTS HAVE BEEN LAUNCHED!"
-echo "----------------------------------------------------"
-echo "Backend: http://localhost:5000"
-echo "Frontend: http://10.42.0.1:5173"
-echo "MongoDB: Docker container (mongodb)"
-echo "Press Ctrl+C to stop all services."
-echo ""
-
-wait
+echo -e "\e[1;32m-------------------------------------------------------------\e[0m"
+echo -e "\e[1;32m SUCCESS: ALL COMPONENTS ARE INITIALIZING ON LINUX/PI\e[0m"
+echo -e "\e[1;32m-------------------------------------------------------------\e[0m"
+echo -e " Backend: http://localhost:5000"
+echo -e " Frontend: http://localhost:5173"
+echo -e ""
+echo -e " To stop everything, run: pkill -f \"python3\" && pkill -f \"vite\""
+echo -e "-------------------------------------------------------------"
