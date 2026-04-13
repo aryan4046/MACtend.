@@ -13,6 +13,7 @@ export function StudentRegistration() {
     email: "",
     college: "SOCET",
     programme: "BTech",
+    career_path: "AOC",
     branch: "CSE",
     semester: "4",
     section: "A"
@@ -61,6 +62,7 @@ export function StudentRegistration() {
         college: formData.college,
         mac_address: macAddress,
         programme: formData.programme,
+        career_path: formData.career_path,
         branch: formData.branch,
         semester: formData.semester,
         section: formData.section
@@ -169,7 +171,7 @@ export function StudentRegistration() {
               </select>
             </div>
 
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Programme</label>
                 <select name="programme" value={formData.programme} onChange={handleChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500">
@@ -181,6 +183,13 @@ export function StudentRegistration() {
                   <option value="Diploma">Diploma</option>
                   <option value="BSc">B.Sc</option>
                   <option value="MSc">M.Sc</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-slate-700 mb-1.5">Career Path</label>
+                <select name="career_path" value={formData.career_path} onChange={handleChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500">
+                  <option value="AOC">AOC</option>
+                  <option value="FSWD">FSWD</option>
                 </select>
               </div>
               <div>

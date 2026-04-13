@@ -206,6 +206,7 @@ def register():
     email = data.get("email")
     college = data.get("college")
     programme = data.get("programme", "").lower().strip()
+    career_path = data.get("career_path", "").lower().strip()
     branch = data.get("branch", "").lower().strip()
     semester = str(data.get("semester", "")).strip()
     section = data.get("section", "").upper().strip()
@@ -234,6 +235,7 @@ def register():
             "college": college,
             "mac_address": mac,
             "programme": programme,
+            "career_path": career_path,
             "branch": branch,
             "semester": semester,
             "section": section,

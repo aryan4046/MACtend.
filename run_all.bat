@@ -24,18 +24,19 @@ echo.
 :: 1. Dependency Checks
 echo [!] Checking environment...
 
-if not exist .venv (
-    color 0C
-    echo [ERROR] Virtual environment (.venv) not found.
-    echo Please create it using: python -m venv .venv
-    pause
-    exit /b
-)
+if exist .venv goto :venv_ok
+color 0C
+echo [ERROR] Virtual environment (.venv) not found.
+echo Please create it using: python -m venv .venv
+pause
+exit /b
 
-if not exist frontend\node_modules (
-    echo [!] node_modules missing. Attempting to install frontend dependencies...
-    cd frontend && npm install && cd ..
-)
+:venv_ok
+if exist frontend\node_modules goto :modules_ok
+echo [!] node_modules missing. Attempting to install frontend dependencies...
+cd frontend && npm install && cd ..
+
+:modules_ok
 
 echo [OK] Environment verified.
 echo.
