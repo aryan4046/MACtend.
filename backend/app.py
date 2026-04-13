@@ -202,8 +202,9 @@ def register():
 
     # ---------- STUDENT DATA ----------
     name = data.get("name")
-    enrollment_number = data.get("enrollmentNumber")
+    enrollment_number = data.get("enrollment_number")
     email = data.get("email")
+    college = data.get("college")
     programme = data.get("programme", "").lower().strip()
     branch = data.get("branch", "").lower().strip()
     semester = str(data.get("semester", "")).strip()
@@ -230,6 +231,7 @@ def register():
             "name": name,
             "enrollment_number": enrollment_number,
             "email": email,
+            "college": college,
             "mac_address": mac,
             "programme": programme,
             "branch": branch,
@@ -418,6 +420,7 @@ def start_session():
             "$set": {
                 "id": 1,
                 "programme": data.get("programme"),
+                "college": data.get("college"),
                 "branch": data.get("branch"),
                 "semester": data.get("semester"),
                 "sections": data.get("sections"),
@@ -438,17 +441,21 @@ def session_stats():
         return jsonify({"success": False, "error": "No active session"})
 
     prog = session.get("programme")
+    college = session.get("college")
     branch = session.get("branch")
     sem = session.get("semester")
     sections = session.get("sections", [])
     subj = session.get("subject")
 
-    students = list(db.students.find({
+    filter_query = {
         "programme": prog,
+        "college": college,
         "branch": branch,
         "semester": sem,
         "section": {"$in": sections}
-    }))
+    }
+
+    students = list(db.students.find(filter_query))
 
     total = len(students)
     present = 0
@@ -586,17 +593,21 @@ def export_csv():
 @app.route("/api/sections", methods=["GET"])
 def get_sections():
     programme = request.args.get("programme", "").lower().strip()
+    college = request.args.get("college", "").strip()
     branch = request.args.get("branch", "").lower().strip()
     semester = str(request.args.get("semester", "")).strip()
     
-    if not programme or not branch or not semester:
+    if not programme or not college or not branch or not semester:
         return jsonify({"success": False, "error": "Missing parameters"}), 400
         
-    sections = db.students.distinct("section", {
+    query = {
         "programme": programme,
+        "college": college,
         "branch": branch,
         "semester": semester
-    })
+    }
+
+    sections = db.students.distinct("section", query)
     
     return jsonify({"success": True, "sections": sorted(sections)})
 

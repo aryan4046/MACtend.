@@ -31,6 +31,7 @@ export async function loginTeacher(data: any) {
 
 export async function startSession(data: {
   programme: string,
+  college: string,
   branch: string,
   semester: string,
   sections: string[],
@@ -68,11 +69,12 @@ export async function getCurrentTimetable() {
 
 export async function getSections(
   programme: string,
+  college: string,
   branch: string,
   semester: string
 ) {
   const response = await fetch(
-    `${API_BASE_URL}/sections?programme=${programme}&branch=${branch}&semester=${semester}`
+    `${API_BASE_URL}/sections?programme=${programme}&college=${college}&branch=${branch}&semester=${semester}`
   );
   return await response.json();
 }

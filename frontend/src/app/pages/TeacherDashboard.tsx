@@ -20,9 +20,10 @@ export function TeacherDashboard() {
   
   // Form State
   const [programme, setProgramme] = useState("BTech");
+  const [college, setCollege] = useState("SOCET");
   const [branch, setBranch] = useState("CSE");
   const [semester, setSemester] = useState("4");
-  const [subject, setSubject] = useState("");
+  const [subject, setSubject] = useState("FSWD");
   const [availableSections, setAvailableSections] = useState<string[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [isStarting, setIsStarting] = useState(false);
@@ -41,7 +42,7 @@ export function TeacherDashboard() {
 
   useEffect(() => {
     loadSections();
-  }, [programme, branch, semester]);
+  }, [programme, college, branch, semester]);
 
   const checkStatus = async () => {
     try {
@@ -77,7 +78,7 @@ export function TeacherDashboard() {
 
   const loadSections = async () => {
     try {
-      const res = await getSections(programme, branch, semester);
+      const res = await getSections(programme, college, branch, semester);
       if (res.sections) {
         setAvailableSections(res.sections);
         // Default select first section if none selected
@@ -111,7 +112,14 @@ export function TeacherDashboard() {
 
     setIsStarting(true);
     try {
-      const res = await startSession({ programme, branch, semester, sections: selectedSections, subject });
+      const res = await startSession({ 
+        programme, 
+        college,
+        branch, 
+        semester, 
+        sections: selectedSections, 
+        subject 
+      });
       if (res.success) {
         setIsActive(true);
         pollStats();
@@ -165,7 +173,14 @@ export function TeacherDashboard() {
 
             {!isActive ? (
               <form onSubmit={handleStart} className="space-y-4">
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-500 mb-1">College</label>
+                    <select value={college} onChange={e => setCollege(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="SOCET">SOCET</option>
+                      <option value="ASOIT">ASOIT</option>
+                    </select>
+                  </div>
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">Programme</label>
                     <select value={programme} onChange={e => setProgramme(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
@@ -204,7 +219,18 @@ export function TeacherDashboard() {
 
                 <div>
                   <label className="block text-sm font-medium text-slate-500 mb-1">Subject</label>
-                  <input type="text" required value={subject} onChange={e => setSubject(e.target.value)} placeholder="e.g. Data Structures" className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500" />
+                  <select 
+                    value={subject} 
+                    onChange={e => setSubject(e.target.value)} 
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="FSWD">FSWD</option>
+                    <option value="AOC">AOC</option>
+                    <option value="IOT">IOT</option>
+                    <option value="AJ">AJ</option>
+                    <option value="FAIML">FAIML</option>
+                    <option value="ABDM">ABDM</option>
+                  </select>
                 </div>
 
                 <div>

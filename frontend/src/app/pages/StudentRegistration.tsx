@@ -11,6 +11,7 @@ export function StudentRegistration() {
     name: "",
     enrollment: "",
     email: "",
+    college: "SOCET",
     programme: "BTech",
     branch: "CSE",
     semester: "4",
@@ -57,6 +58,7 @@ export function StudentRegistration() {
         name: formData.name,
         enrollment_number: formData.enrollment,
         email: formData.email,
+        college: formData.college,
         mac_address: macAddress,
         programme: formData.programme,
         branch: formData.branch,
@@ -154,7 +156,20 @@ export function StudentRegistration() {
               />
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1.5">Select College</label>
+              <select 
+                name="college" 
+                value={formData.college} 
+                onChange={handleChange} 
+                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-2.5 outline-none focus:ring-2 focus:ring-blue-500/50 transition-all text-slate-900"
+              >
+                <option value="SOCET">SOCET</option>
+                <option value="ASOIT">ASOIT</option>
+              </select>
+            </div>
+
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div>
                 <label className="block text-sm font-medium text-slate-700 mb-1.5">Programme</label>
                 <select name="programme" value={formData.programme} onChange={handleChange} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2.5 outline-none focus:ring-2 focus:ring-blue-500">
