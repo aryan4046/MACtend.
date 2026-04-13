@@ -1,0 +1,154 @@
+{
+  "session": {
+    "_id": {
+      "$oid": "699b421ce4eed39ca37e6d74"
+    },
+    "id": 1,
+    "programme": "btech",
+    "branch": "it",
+    "semester": "6",
+    "section": "A",
+    "subject": "IOT",
+    "is_active": false,
+    "sections": [
+      "A"
+    ]
+  },
+  "students": [
+    {
+      "_id": {
+        "$oid": "699b452fe1ea4ec362fcea31"
+      },
+      "name": "Aryan Samani",
+      "enrollment_number": "2301031000087",
+      "email": "2301031000087@silveroakuni.ac.in",
+      "mac_address": "AA:5F:A6:FC:1F:20",
+      "programme": "btech",
+      "branch": "it",
+      "semester": "6",
+      "section": "A",
+      "last_seen": "2026-02-23T23:31:23.224238"
+    },
+    {
+      "_id": {
+        "$oid": "699c158c514a451670ebdb6c"
+      },
+      "name": "Vaidik makasana ",
+      "enrollment_number": "2301031000037",
+      "email": "2301031000037@silveroakuni.ac.in",
+      "mac_address": "1A:BE:81:7F:A4:87",
+      "programme": "btech",
+      "branch": "it",
+      "semester": "6",
+      "section": "A",
+      "last_seen": "2026-02-23T14:25:52.509349"
+    },
+    {
+      "_id": {
+        "$oid": "699c15a5514a451670ebdb6d"
+      },
+      "name": "Sagar Kamariya ",
+      "enrollment_number": "2301031000030",
+      "email": "2301031000030@silveroakuni.ac.in",
+      "mac_address": "4E:E2:5B:E0:71:C7",
+      "programme": "btech",
+      "branch": "it",
+      "semester": "6",
+      "section": "B",
+      "last_seen": "2026-02-23T16:11:20.375978"
+    },
+    {
+      "_id": {
+        "$oid": "699c15a6514a451670ebdb6e"
+      },
+      "name": "Shrey ",
+      "enrollment_number": "2301031000019",
+      "email": "2301031000019@silveroakuni.ac.in",
+      "mac_address": "16:1F:9C:1E:EB:67",
+      "programme": "btech",
+      "branch": "it",
+      "semester": "3",
+      "section": "A",
+      "last_seen": "2026-02-23T16:16:42.580253"
+    }
+  ],
+  "attendance": [
+    {
+      "_id": {
+        "$oid": "699c957090c8b768d2c2908b"
+      },
+      "student_id": {
+        "$oid": "699b452fe1ea4ec362fcea31"
+      },
+      "subject": "IOT",
+      "date": "2026-02-23",
+      "time": "23:29:12"
+    },
+    {
+      "_id": {
+        "$oid": "699c2ee485e096d143257176"
+      },
+      "student_id": {
+        "$oid": "699c15a6514a451670ebdb6e"
+      },
+      "subject": "IOT",
+      "date": "2026-02-23",
+      "time": "16:11:40"
+    },
+    {
+      "_id": {
+        "$oid": "699c2eb285e096d143257175"
+      },
+      "student_id": {
+        "$oid": "699c15a5514a451670ebdb6d"
+      },
+      "subject": "IOT",
+      "date": "2026-02-23",
+      "time": "16:10:50"
+    },
+    {
+      "_id": {
+        "$oid": "699c18fc20337a89e8416465"
+      },
+      "student_id": {
+        "$oid": "699c15a5514a451670ebdb6d"
+      },
+      "subject": "FAIML",
+      "date": "2026-02-23",
+      "time": "14:38:12"
+    },
+    {
+      "_id": {
+        "$oid": "699c162c20337a89e8416464"
+      },
+      "student_id": {
+        "$oid": "699c15a5514a451670ebdb6d"
+      },
+      "subject": "ABDM",
+      "date": "2026-02-23",
+      "time": "14:26:12"
+    },
+    {
+      "_id": {
+        "$oid": "699c15e620337a89e8416463"
+      },
+      "student_id": {
+        "$oid": "699c158c514a451670ebdb6c"
+      },
+      "subject": "IOT",
+      "date": "2026-02-23",
+      "time": "14:25:02"
+    },
+    {
+      "_id": {
+        "$oid": "699b4531a498b781358462b3"
+      },
+      "student_id": {
+        "$oid": "699b452fe1ea4ec362fcea31"
+      },
+      "subject": "ABDM",
+      "date": "2026-02-22",
+      "time": "23:34:33"
+    }
+  ]
+}
