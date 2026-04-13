@@ -8,7 +8,7 @@ from datetime import datetime
 from database import db
 
 import platform
-MINIMUM_CONNECTION_SECONDS = 5    # Reduced from 15 for quicker actual attendance marking
+MINIMUM_CONNECTION_SECONDS = 5    # Require 5 seconds of active connection before marking
 LIVE_TIMEOUT_SECONDS = 15          # For dynamic live detection
 def get_connected_macs():
     """Scans the ARP table and returns a dict mapping DYNAMIC MAC addresses to their IP."""
@@ -19,23 +19,29 @@ def get_connected_macs():
         if platform.system() == "Windows":
             # Get host's own MACs to exclude them
             try:
-                getmac_out = subprocess.check_output("getmac", shell=True).decode()
+                getmac_out = subprocess.check_output("getmac", shell=True).decode(errors="ignore")
                 for line in getmac_out.splitlines():
                     if "-" in line:
                         m = line.split()[0].replace("-", ":").upper()
                         if len(m) == 17: own_macs.add(m)
             except: pass
 
-            output = subprocess.check_output("arp -a", shell=True).decode()
+            # Try arp lookup with improved parsing (matching app.py logic)
+            output = subprocess.check_output("arp -a", shell=True).decode(errors="ignore")
             for line in output.splitlines():
                 parts = line.split()
-                if len(parts) >= 2:
-                    ip = parts[0]
-                    mac = parts[1].replace("-", ":").upper()
-                    if len(mac) == 17 and mac.count(":") == 5:
-                        if not mac.startswith("01:00:5E") and not mac.startswith("33:33:") and not mac == "FF:FF:FF:FF:FF:FF":
-                            if mac not in own_macs:
-                                macs[mac] = ip
+                # A valid ARP entry usually has 3 parts: IP, MAC, Type
+                # Sometimes there's extra whitespace or dashes
+                for i, part in enumerate(parts):
+                    # Check if this part looks like a MAC address
+                    mac_candidate = part.replace("-", ":").upper()
+                    if len(mac_candidate) == 17 and mac_candidate.count(":") == 5:
+                        # The IP is usually the part before the MAC
+                        if i > 0:
+                            ip_candidate = parts[i-1]
+                            if not mac_candidate.startswith("01:00:5E") and not mac_candidate.startswith("33:33:"):
+                                if mac_candidate not in own_macs:
+                                    macs[mac_candidate] = ip_candidate
                             
             # Add IPv6 neighbors 
             try:
@@ -81,17 +87,32 @@ def get_connected_macs():
     return macs
 
 def mark_attendance():
+    """Main function to scan devices and mark attendance based on active session."""
     session = db.active_session.find_one({"id": 1})
-
+    
     if not session or not session.get("is_active"):
         print(f"[{datetime.now().strftime('%H:%M:%S')}] No active session. Skipping scan.")
         return
+
+    # Check for 5-minute expiry (300 seconds)
+    start_at = session.get("start_at")
+    if start_at:
+        # Some DB drivers return datetime objects directly
+        # Ensure we are comparing correctly
+        now = datetime.now()
+        elapsed = (now - start_at).total_seconds()
+        
+        if elapsed > 300:
+            print(f"[EXPIRED] Session for {session.get('subject')} timed out. Stopping scanner.")
+            db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
+            return
 
     programme = session.get("programme")
     branch = session.get("branch")
     semester = session.get("semester")
     sections = session.get("sections", [])
     subject = session.get("subject")
+    college = session.get("college", "") # Added this line to fix the error
 
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Active Session: {subject} ({branch}). Scanning...")
 
@@ -99,12 +120,27 @@ def mark_attendance():
     now = datetime.now()
     today = now.strftime("%Y-%m-%d")
 
-    students = list(db.students.find({
-        "programme": programme,
-        "branch": branch,
-        "semester": semester,
-        "section": {"$in": sections}
-    }))
+    # Use case-insensitive regex for all filters to ensure maximum compatibility
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+
+    # sections is already a list, make each element a case-insensitive regex
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+
+    query = {
+        "programme": ci_reg(programme),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(semester),
+        "$or": section_queries, # Use $or for sections
+        "$and": [ # Flexible college check
+            {"$or": [
+                {"college": ci_reg(college)},
+                {"college": {"$exists": False}},
+                {"college": ""}
+            ]}
+        ]
+    }
+
+    students = list(db.students.find(query))
 
     start_at = session.get("start_at")
     if not start_at:
@@ -112,17 +148,18 @@ def mark_attendance():
         start_time_str = session.get("start_time", "00:00:00")
         start_at = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y-%m-%d %H:%M:%S")
 
-    for s in students:
+    # Create a normalized version of connected_macs (all uppercase) for easy matching
+    norm_connected = {m.upper(): ip for m, ip in connected_macs.items()}
 
-        mac = s.get("mac_address")
+    for s in students:
+        db_mac = (s.get("mac_address") or "").strip().upper().replace("-", ":")
         connected_since = s.get("connected_since")
 
         # ----------------------------------
-        # 🟢 STUDENT IS CONNECTED
+        # 🟢 STUDENT IS CONNECTED (Case-Insensitive Match)
         # ----------------------------------
-        if mac in connected_macs:
-        
-            ip = connected_macs[mac]
+        if db_mac in norm_connected:
+            ip = norm_connected[db_mac]
             
             # --- [ANTI-PROXY: LATENCY MEASUREMENT] ---
             # We measure ping latency to see if they are inside the room
@@ -177,11 +214,12 @@ def mark_attendance():
                         
                 # First time detected
                 if not connected_since:
+                    connected_since = now.isoformat()
                     db.students.update_one(
                         {"_id": s["_id"]},
-                        {"$set": {"connected_since": now.isoformat()}}
+                        {"$set": {"connected_since": connected_since}}
                     )
-                    continue
+                    # Don't 'continue' here anymore - mark them present immediately!
 
                 # Already connected — check duration
                 try:
@@ -218,13 +256,13 @@ def mark_attendance():
                             "connection_duration": int(duration)
                         })
 
-                        print(f"✅ Attendance Marked: {s.get('name')} (Signal: {signal_level})")
+                        print(f"[OK] Attendance Marked: {s.get('name')} (Signal: {signal_level})")
                 
                 # Continue loop so it doesn't run the disconnect block
                 continue
 
         # ----------------------------------
-        # 🔴 STUDENT IS DISCONNECTED
+        # RED STUDENT IS DISCONNECTED
         # ----------------------------------
         # If they reached this point, they are NOT in connected_macs, OR their ping failed (Offline)
         
@@ -262,7 +300,7 @@ def mark_attendance():
                             entry_dt = datetime.strptime(f"{entry['date']} {entry['time']}", "%Y-%m-%d %H:%M:%S")
                             if entry_dt >= start_at:
                                 db.attendance.delete_one({"_id": entry["_id"]})
-                                print(f"❌ Attendance Revoked (disconnected before 5 min): {s.get('name')}")
+                                print(f"[REVOKED] Attendance Revoked (disconnected before 5 min): {s.get('name')}")
                         except Exception:
                             pass
                             
@@ -273,6 +311,16 @@ def mark_attendance():
                 )
             except Exception as e:
                 print(f"Error handling disconnect for {s.get('name')}: {e}")
+
+    # --- [NEW: UNMATCHED DEVICE LOGGING] ---
+    # Record any connected MACs that didn't match a student in this session
+    unmatched = [m for m in connected_macs if m not in [st.get("mac_address") for st in students]]
+    if unmatched:
+        db.active_session.update_one(
+            {"id": 1}, 
+            {"$set": {"unmatched_macs": unmatched}}
+        )
+        print(f"[{datetime.now().strftime('%H:%M:%S')}] Detected {len(unmatched)} unknown device(s) near server.")
 if __name__ == "__main__":
     print("Starting MongoDB-based Background Attendance Scanner...")
     print("Press Ctrl+C to stop.")

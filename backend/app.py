@@ -54,25 +54,33 @@ def get_mac(ip):
         system = platform.system().lower()
 
         if system == "windows":
-            # Quick ping to ensure ARP cache is populated without waiting too long
-            subprocess.call(f"ping -n 1 -w 500 {clean_ip} > NUL 2>&1", shell=True)
+            # Quick ping to ensure ARP cache is populated
+            subprocess.call(f"ping -n 1 -w 1000 {clean_ip} > NUL 2>&1", shell=True)
             
-            # Check if it's an IPv6 address
-            if ":" in clean_ip:
-                output = subprocess.check_output("netsh interface ipv6 show neighbors", shell=True).decode(errors="ignore")
-            else:
-                output = subprocess.check_output("arp -a", shell=True).decode(errors="ignore")
+            # Try arp lookup with improved parsing
+            output = subprocess.check_output("arp -a", shell=True).decode(errors="ignore")
             
+            # Strategy: Look for the exact IP or variations
+            # Some Windows versions pad IPs with spaces or leading zeros
             for line in output.split("\n"):
-                if "---" not in line and clean_ip.lower() in line.lower():
+                if clean_ip.lower() in line.lower():
                     parts = line.split()
-                    if len(parts) >= 2 and parts[0].lower() == clean_ip.lower():
-                        # Sometimes IPv6 netsh leaves empty physical address for some entries, check it looks like a mac
-                        mac_candidate = parts[1].replace("-", ":").upper()
-                        if ":" in mac_candidate and len(mac_candidate) >= 11:
+                    # Find the part that looks like a MAC address (XX-XX-XX-XX-XX-XX)
+                    for part in parts:
+                        mac_candidate = part.replace("-", ":").upper()
+                        if len(mac_candidate) == 17 and mac_candidate.count(":") == 5:
                             return mac_candidate
-                        if mac_candidate != "UNREACHABLE":
-                            return mac_candidate
+
+            # Fallback for IPv6 neighbors
+            if ":" in clean_ip:
+                output_v6 = subprocess.check_output("netsh interface ipv6 show neighbors", shell=True).decode(errors="ignore")
+                for line in output_v6.split("\n"):
+                    if clean_ip.lower() in line.lower():
+                        parts = line.split()
+                        for p in parts:
+                            mac_v6 = p.replace("-", ":").upper()
+                            if len(mac_v6) == 17 and mac_v6.count(":") == 5:
+                                return mac_v6
         else:
             # Force ARP refresh (important)
             subprocess.call(f"ping -c 1 -W 1 {ip} > /dev/null 2>&1", shell=True)
@@ -93,16 +101,14 @@ def get_mac(ip):
     return f"UNKNOWN_MAC_FOR_{ip}"
 def get_client_ip():
     """
-    Get REAL client IP even behind Vite proxy
+    Get REAL client IP even behind various proxies
     """
-    forwarded = request.headers.get("X-Forwarded-For")
+    # Try common proxy headers first
+    ip = request.headers.get("X-Forwarded-For", "").split(",")[0].strip() or \
+         request.headers.get("X-Real-IP", "").strip() or \
+         request.remote_addr
 
-    if forwarded:
-        ip = forwarded.split(",")[0].strip()
-    else:
-        ip = request.remote_addr
-
-    # Clean IPv4-mapped IPv6 addresses just in case
+    # Clean IPv4-mapped IPv6 addresses
     if ip and ip.startswith("::ffff:"):
         ip = ip.replace("::ffff:", "")
         
@@ -182,7 +188,7 @@ def detect_mac():
         return jsonify({
             "success": True,
             "ip": ip,
-            "mac": mac
+            "mac_address": mac
         })
 
     return jsonify({
@@ -267,132 +273,96 @@ def get_attendance():
     # 1. Get active session to filter logs
     session = db.active_session.find_one({"id": 1})
     
+    if not session:
+        return jsonify({"success": False, "error": "No session found"})
+
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    
+    is_active = bool(session.get("is_active"))
+    prog = session.get("programme")
+    college = session.get("college")
+    branch = session.get("branch")
+    sem = session.get("semester")
+    sections = session.get("sections", [])
+    subj = session.get("subject")
+    start_at = session.get("start_at")
+    
+    if not prog or not subj or not start_at:
+         return jsonify({"success": True, "logs": [], "is_active": is_active})
+
+    # Prepare common section query
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+    
+    # Common Filter for both Active/Inactive views
+    filter_query = {
+        "programme": ci_reg(prog),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(sem),
+        "$or": section_queries,
+        "$and": [
+            {"$or": [
+                {"college": ci_reg(college)},
+                {"college": {"$exists": False}},
+                {"college": ""}
+            ]}
+        ]
+    }
+
+    students = list(db.students.find(filter_query))
+    
+    now = datetime.now()
     logs = []
-    if session and session.get("is_active"):
-        prog = session.get("programme")
-        sem = session.get("semester")
-        branch = session.get("branch")
-        sections = session.get("sections", [])
-        subj = session.get("subject")
+    for s in students:
+        is_online = False
+        last_seen_str = s.get("last_seen")
+        if last_seen_str:
+            try:
+                last_seen_time = datetime.fromisoformat(last_seen_str)
+                if (now - last_seen_time).total_seconds() < 30:
+                    is_online = True
+            except: pass
         
-        # Get all students for these sections
-        students = list(db.students.find({
-            "programme": prog,
-            "branch": branch,
-            "semester": sem,
-            "section": {"$in": sections}
+        # Find latest log entry for this student/subject AFTER session started
+        log_entries = list(db.attendance.find({
+            "student_id": s["_id"],
+            "subject": subj,
+            "date": {"$gte": start_at.strftime("%Y-%m-%d")}
         }))
         
-        now = datetime.now()
-        today_date_str = now.strftime("%Y-%m-%d")
-        start_at = session.get("start_at")
-        # For backward compatibility if start_at missing
-        if not start_at:
-            start_date_str = session.get("start_date", today_date_str)
-            start_time_str = session.get("start_time", "00:00:00")
-            start_at = datetime.strptime(f"{start_date_str} {start_time_str}", "%Y-%m-%d %H:%M:%S")
-
-        for s in students:
-            is_online = False
-            last_seen_str = s.get("last_seen")
-            if last_seen_str:
-                try:
-                    last_seen_time = datetime.fromisoformat(last_seen_str)
-                    if (now - last_seen_time).total_seconds() < 30:
-                        is_online = True
-                except: pass
-            
-            # Find log entry for this student/subject AFTER session started
-            # We filter by date/time >= start_at
-            # More robust: use a single timestamp field in attendance, but for now we filter by date/time
-            log_entries = list(db.attendance.find({
-                "student_id": s["_id"],
-                "subject": subj,
-                "date": {"$gte": start_at.strftime("%Y-%m-%d")}
-            }))
-            
-            # Filter manually for strict time comparison if on the same start date
-            log_entry = None
-            for entry in log_entries:
-                entry_dt = datetime.strptime(f"{entry['date']} {entry['time']}", "%Y-%m-%d %H:%M:%S")
-                if entry_dt >= start_at:
-                    if not log_entry or entry_dt > datetime.strptime(f"{log_entry['date']} {log_entry['time']}", "%Y-%m-%d %H:%M:%S"):
+        log_entry = None
+        for entry in log_entries:
+            try:
+                e_dt = datetime.strptime(f"{entry['date']} {entry['time']}", "%Y-%m-%d %H:%M:%S")
+                if e_dt >= start_at:
+                    if not log_entry:
                         log_entry = entry
-
-            logs.append({
-                "studentId": str(s["_id"]),
-                "name": s.get("name"),
-                "enrollmentNumber": s.get("enrollment_number"),
-                "subject": subj,
-                "time": log_entry.get("time") if log_entry else "--:--",
-                "is_online": is_online,
-                "source": log_entry.get("source", "auto") if log_entry else "--",
-                "signal_strength": s.get("signal_strength") if is_online else None
-            })
-    else:
-        # Session is inactive. Show the logs for the LAST session that was and still is in document 1.
-        prog = session.get("programme")
-        sem = session.get("semester")
-        branch = session.get("branch")
-        sections = session.get("sections", [])
-        subj = session.get("subject")
-        start_at = session.get("start_at")
-
-        if prog and subj and start_at:
-            # Get students for that last session
-            students = list(db.students.find({
-                "programme": prog, "branch": branch, "semester": sem, "section": {"$in": sections}
-            }))
-            for s in students:
-                log_entries = list(db.attendance.find({
-                    "student_id": s["_id"], "subject": subj, "date": {"$gte": start_at.strftime("%Y-%m-%d")}
-                }))
-                log_entry = None
-                for entry in log_entries:
-                    entry_dt = datetime.strptime(f"{entry['date']} {entry['time']}", "%Y-%m-%d %H:%M:%S")
-                    if entry_dt >= start_at:
-                        if not log_entry or entry_dt > datetime.strptime(f"{log_entry['date']} {log_entry['time']}", "%Y-%m-%d %H:%M:%S"):
+                    else:
+                        le_dt = datetime.strptime(f"{log_entry['date']} {log_entry['time']}", "%Y-%m-%d %H:%M:%S")
+                        if e_dt > le_dt:
                             log_entry = entry
-                
-                # We only show students who were ACTUALLY marked present in history for clarity,
-                # or we show the whole list? The user said "show current session log".
-                # Showing just the present ones is cleaner for a "Summary".
-                if log_entry:
-                    logs.append({
-                        "studentId": str(s["_id"]),
-                        "name": s.get("name"),
-                        "enrollmentNumber": s.get("enrollment_number"),
-                        "subject": subj,
-                        "time": log_entry.get("time"),
-                        "is_online": False,
-                        "source": log_entry.get("source", "auto")
-                    })
-        else:
-            # Fallback for very first run or clear DB
-            recent_logs = list(db.attendance.find().sort("_id", -1).limit(20))
-            for al in recent_logs:
-                student = db.students.find_one({"_id": al.get("student_id")})
-                logs.append({
-                    "studentId": str(al.get("student_id")),
-                    "name": student.get("name") if student else "Unknown",
-                    "enrollmentNumber": student.get("enrollment_number") if student else "N/A",
-                    "subject": al.get("subject"),
-                    "date": al.get("date"),
-                    "time": al.get("time"),
-                    "is_online": False,
-                    "source": al.get("source", "auto")
-                })
-            
+            except: continue
+        
+        logs.append({
+            "studentId": str(s["_id"]),
+            "name": s.get("name"),
+            "enrollmentNumber": s.get("enrollment_number"),
+            "subject": subj,
+            "time": log_entry.get("time") if log_entry else "--:--",
+            "is_online": is_online,
+            "source": log_entry.get("source", "auto") if log_entry else "--",
+            "signal_strength": s.get("signal_strength") if is_online else None
+        })
+    
     return jsonify({
         "success": True, 
         "logs": logs, 
-        "is_active": bool(session and session.get("is_active")),
+        "is_active": is_active,
         "session": {
-            "programme": session.get("programme") if session else None,
-            "branch": session.get("branch") if session else None,
-            "semester": session.get("semester") if session else None,
-            "sections": session.get("sections", []) if session else [],
-            "subject": session.get("subject") if session else None
+            "programme": prog,
+            "branch": branch,
+            "semester": sem,
+            "sections": sections,
+            "subject": subj
         } if session else None
     })
 
@@ -449,12 +419,21 @@ def session_stats():
     sections = session.get("sections", [])
     subj = session.get("subject")
 
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+
     filter_query = {
-        "programme": prog,
-        "college": college,
-        "branch": branch,
-        "semester": sem,
-        "section": {"$in": sections}
+        "programme": ci_reg(prog),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(sem),
+        "$or": section_queries,
+        "$and": [
+            {"$or": [
+                {"college": ci_reg(college)},
+                {"college": {"$exists": False}},
+                {"college": ""}
+            ]}
+        ]
     }
 
     students = list(db.students.find(filter_query))
@@ -534,40 +513,34 @@ def stop_session():
 @app.route("/api/session/status", methods=["GET"])
 def session_status():
     session = db.active_session.find_one({"id": 1})
-    if session:
-        return jsonify({
-            "programme": session.get("programme"),
-            "branch": session.get("branch"),
-            "semester": session.get("semester"),
-            "sections": session.get("sections", []),
-            "subject": session.get("subject"),
-            "is_active": bool(session.get("is_active"))
-        })
-    return jsonify({"is_active": False})
-
-@app.route("/api/timetable/current", methods=["GET"])
-def get_current_timetable():
-    now = datetime.now()
-    day = now.strftime("%A")
-    time_str = now.strftime("%H:%M")
+    if not session:
+        return jsonify({"is_active": False})
     
-    # Find subject where start_time <= current_time <= end_time
-    entry = db.timetable.find_one({
-        "day": day,
-        "start_time": {"$lte": time_str},
-        "end_time": {"$gte": time_str}
+    is_active = bool(session.get("is_active"))
+    start_at = session.get("start_at")
+    remaining_seconds = 0
+    
+    if is_active and start_at:
+        # Calculate time elapsed
+        elapsed = (datetime.now() - start_at).total_seconds()
+        remaining_seconds = max(0, 300 - int(elapsed)) # 300s = 5 mins
+        
+        # Auto-expire if time is up
+        if remaining_seconds <= 0:
+            db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
+            is_active = False
+            
+    return jsonify({
+        "college": session.get("college"),
+        "programme": session.get("programme"),
+        "branch": session.get("branch"),
+        "semester": session.get("semester"),
+        "sections": session.get("sections", []),
+        "subject": session.get("subject"),
+        "is_active": is_active,
+        "remaining_seconds": remaining_seconds
     })
-    
-    if entry:
-        return jsonify({
-            "success": True, 
-            "subject": entry.get("subject"),
-            "programme": entry.get("programme"),
-            "branch": entry.get("branch"),
-            "semester": entry.get("semester"),
-            "section": entry.get("section")
-        })
-    return jsonify({"success": False, "error": "No subject scheduled at this time"})
+
 
 
 @app.route("/api/export/csv", methods=["GET"])
@@ -648,7 +621,7 @@ def status():
     return jsonify({"status": "online", "network": "local", "db": "mongodb"})
 
 if __name__ == "__main__":
-    print("🔄 Resetting active session on startup...")
+    print("[INFO] Resetting active session on startup...")
 
     db.active_session.update_one(
         {"id": 1},

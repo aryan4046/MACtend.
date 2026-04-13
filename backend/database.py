@@ -1,8 +1,12 @@
 from pymongo import MongoClient
 import os
+from dotenv import load_dotenv
 
-# Local MongoDB Connection (Docker or local service)
-MONGO_URI = "mongodb://localhost:27017/"
+# Load environment variables from .env (one level up from backend)
+load_dotenv(os.path.join(os.path.dirname(__file__), "..", ".env"))
+
+# MongoDB Connection (Env for Docker, localhost for direct)
+MONGO_URI = os.getenv("MONGO_URI", "mongodb://localhost:27017/")
 
 client = MongoClient(MONGO_URI)
 db = client["attendance_system"]
@@ -28,19 +32,24 @@ def init_db():
         db.students.create_index("email", unique=True)
         db.students.create_index("mac_address", unique=True)
 
-        db.timetable.create_index([
-            ("day", 1),
-            ("start_time", 1),
-            ("end_time", 1)
-        ])
+        db.attendance.create_index([("student_id", 1), ("date", 1), ("subject", 1)])
+        db.attendance.create_index("date")
+
 
         db.faculties.create_index("email", unique=True)
         db.faculty_logs.create_index("timestamp")
 
-        print("✅ Local MongoDB Connected & Schema Initialized Successfully")
+        # Master Data Indexes
+        db.colleges.create_index("name", unique=True)
+        db.programmes.create_index("name", unique=True)
+        db.branches.create_index("name", unique=True)
+        db.subjects.create_index("name", unique=True)
+        db.subjects.create_index("code", unique=True, sparse=True)
+
+        print("[OK] Local MongoDB Connected & Schema Initialized Successfully")
 
     except Exception as e:
-        print(f"❌ Database initialization error: {e}")
+        print(f"[ERROR] Database initialization error: {e}")
 
 if __name__ == "__main__":
     init_db()

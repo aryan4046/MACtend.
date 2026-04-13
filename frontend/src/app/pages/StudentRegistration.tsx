@@ -105,6 +105,18 @@ export function StudentRegistration() {
           <p className="text-blue-100 mt-2 text-sm max-w-sm">
             Link your current device to your student profile to access automated attendance check-ins.
           </p>
+
+          {macAddress && (
+            <div className="mt-6 flex items-center gap-3 bg-white/10 backdrop-blur-md border border-white/20 p-3 rounded-2xl">
+              <div className="bg-white/20 p-2 rounded-lg">
+                <Laptop2 size={18} />
+              </div>
+              <div className="flex-1">
+                <div className="text-[10px] uppercase tracking-wider text-blue-200 font-bold">Detected Device ID</div>
+                <div className="font-mono text-sm font-semibold tracking-wider">{macAddress}</div>
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="p-8">

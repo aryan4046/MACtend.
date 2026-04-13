@@ -1,12 +1,13 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { 
-  Users, Download, Check, X, Search, RefreshCw, AlertCircle
+  Users, Download, Check, X, Search, RefreshCw, AlertCircle, Laptop
 } from "lucide-react";
-import { getAttendance, toggleAttendance, EXPORT_URL } from "../api";
+import { getAttendance, toggleAttendance, getSessionStatus, EXPORT_URL } from "../api";
 
 export function LiveAttendance() {
   const [logs, setLogs] = useState<any[]>([]);
+  const [sessionStatus, setSessionStatus] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
 
@@ -18,9 +19,16 @@ export function LiveAttendance() {
 
   const fetchLogs = async () => {
     try {
-      const res = await getAttendance();
-      if (res.success) {
-        setLogs(res.logs);
+      const [attendRes, statusRes] = await Promise.all([
+        getAttendance(),
+        getSessionStatus()
+      ]);
+
+      if (attendRes.success) {
+        setLogs(attendRes.logs);
+      }
+      if (statusRes.is_active) {
+        setSessionStatus(statusRes);
       }
     } catch (err) {
       console.error(err);
@@ -154,12 +162,12 @@ export function LiveAttendance() {
                          onClick={() => handleToggle(log.studentId, log.subject, log.time)}
                          className={`p-1.5 rounded-lg border transition-colors ${
                            log.time !== "--:--" 
-                             ? "text-rose-600 border-rose-200 hover:bg-rose-50 bg-white" 
-                             : "text-blue-600 border-blue-200 hover:bg-blue-50 bg-white"
+                             ? "text-blue-600 border-blue-200 hover:bg-blue-50 bg-white" 
+                             : "text-rose-600 border-rose-200 hover:bg-rose-50 bg-white"
                          }`}
                          title={`Mark as ${log.time !== "--:--" ? "Absent" : "Present"}`}
                        >
-                         {log.time !== "--:--" ? <X size={16} /> : <Check size={16} />}
+                         {log.time !== "--:--" ? <Check size={16} /> : <X size={16} />}
                        </button>
                     </td>
                   </tr>
@@ -168,6 +176,26 @@ export function LiveAttendance() {
             </tbody>
           </table>
         </div>
+
+        {sessionStatus?.unmatched_macs && sessionStatus.unmatched_macs.length > 0 && (
+          <div className="bg-slate-50 p-6 border-t border-slate-200">
+            <h3 className="text-sm font-bold text-slate-500 uppercase tracking-wider mb-4 flex items-center gap-2">
+              <Laptop size={16} /> Unregistered Devices Nearby ({sessionStatus.unmatched_macs.length})
+            </h3>
+            <div className="flex flex-wrap gap-3">
+              {sessionStatus.unmatched_macs.map((mac: string) => (
+                <div key={mac} className="bg-white border border-slate-200 px-4 py-2 rounded-2xl flex items-center gap-3 shadow-sm hover:border-blue-200 transition-colors group">
+                  <div className="w-2 h-2 rounded-full bg-slate-300 group-hover:bg-blue-400" />
+                  <span className="font-mono text-sm text-slate-600 font-medium">{mac}</span>
+                  <span className="text-[10px] bg-slate-100 text-slate-500 px-2 py-0.5 rounded-full font-bold">UNLINKED</span>
+                </div>
+              ))}
+            </div>
+            <p className="mt-4 text-xs text-slate-400 italic">
+              Note: These devices are in the room but their Hardware ID isn't registered to a student in this class.
+            </p>
+          </div>
+        )}
       </div>
     </div>
   );

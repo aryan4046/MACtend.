@@ -7,7 +7,6 @@ import {
 import { 
   getSessionStatus, 
   getSessionStats, 
-  getCurrentTimetable, 
   getSections, 
   startSession, 
   stopSession 
@@ -15,30 +14,55 @@ import {
 
 export function TeacherDashboard() {
   const [isActive, setIsActive] = useState(false);
+  const [remainingSeconds, setRemainingSeconds] = useState(0);
   const [stats, setStats] = useState({ total_students: 0, present: 0, absent: 0, live_devices: 0 });
-  const [timetable, setTimetable] = useState<any>(null);
+  const [sessionInfo, setSessionInfo] = useState<any>(null);
   
   // Form State
-  const [programme, setProgramme] = useState("BTech");
-  const [college, setCollege] = useState("SOCET");
-  const [branch, setBranch] = useState("CSE");
-  const [semester, setSemester] = useState("4");
-  const [subject, setSubject] = useState("FSWD");
+  const [programme, setProgramme] = useState("");
+  const [college, setCollege] = useState("");
+  const [branch, setBranch] = useState("");
+  const [semester, setSemester] = useState("");
+  const [subject, setSubject] = useState("");
   const [availableSections, setAvailableSections] = useState<string[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [isStarting, setIsStarting] = useState(false);
 
   useEffect(() => {
     checkStatus();
-    loadTimetable();
     
     // Poll stats if active
     const statsInterval = setInterval(() => {
       if (isActive) pollStats();
     }, 5000);
+
+    // Sync status every 15 seconds to ensure timer is correct
+    const syncInterval = setInterval(() => {
+      if (isActive) checkStatus();
+    }, 15000);
     
-    return () => clearInterval(statsInterval);
+    return () => {
+      clearInterval(statsInterval);
+      clearInterval(syncInterval);
+    };
   }, [isActive]);
+
+  // Local Countdown Timer
+  useEffect(() => {
+    let timer: any;
+    if (isActive && remainingSeconds > 0) {
+      timer = setInterval(() => {
+        setRemainingSeconds(prev => {
+          if (prev <= 1) {
+            setIsActive(false); // Auto-stop UI
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [isActive, remainingSeconds]);
 
   useEffect(() => {
     loadSections();
@@ -49,7 +73,11 @@ export function TeacherDashboard() {
       const res = await getSessionStatus();
       setIsActive(res.is_active);
       if (res.is_active) {
+        setSessionInfo(res);
+        setRemainingSeconds(res.remaining_seconds || 0);
         pollStats();
+      } else {
+        setSessionInfo(null);
       }
     } catch (e) {
       console.error(e);
@@ -59,32 +87,23 @@ export function TeacherDashboard() {
   const pollStats = async () => {
     try {
       const res = await getSessionStats();
-      setStats(res);
+      setStats({
+        total_students: res.total || 0,
+        present: res.present || 0,
+        absent: res.absent || 0,
+        live_devices: res.live || 0
+      });
     } catch (e) {
       console.error(e);
     }
   };
 
-  const loadTimetable = async () => {
-    try {
-      const res = await getCurrentTimetable();
-      if (res.success) {
-        setTimetable(res);
-      }
-    } catch (e) {
-      console.error("Timetable load failed", e);
-    }
-  };
 
   const loadSections = async () => {
     try {
       const res = await getSections(programme, college, branch, semester);
       if (res.sections) {
         setAvailableSections(res.sections);
-        // Default select first section if none selected
-        if (selectedSections.length === 0 && res.sections.length > 0) {
-          setSelectedSections([res.sections[0]]);
-        }
       }
     } catch (e) {
       console.error("Sections load failed", e);
@@ -122,6 +141,7 @@ export function TeacherDashboard() {
       });
       if (res.success) {
         setIsActive(true);
+        setRemainingSeconds(300); // 5 mins
         pollStats();
       } else {
         alert("Failed to start session: " + (res.message || res.error || "Unknown error"));
@@ -154,10 +174,16 @@ export function TeacherDashboard() {
           <p className="text-slate-500">Manage classes and live attendance networking</p>
         </div>
         {isActive && (
-          <div className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 font-semibold shadow-sm animate-pulse">
-            <Radio size={18} className="animate-ping absolute opacity-20" />
-            <Radio size={18} />
-            Session In Progress
+          <div className="flex items-center gap-4">
+            <div className="flex items-center gap-2 bg-blue-50 text-blue-700 px-4 py-2 rounded-full border border-blue-100 font-bold shadow-sm">
+              <Clock size={18} />
+              {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, '0')}
+            </div>
+            <div className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 font-semibold shadow-sm animate-pulse">
+              <Radio size={18} className="animate-ping absolute opacity-20" />
+              <Radio size={18} />
+              Session In Progress
+            </div>
           </div>
         )}
       </div>
@@ -177,6 +203,7 @@ export function TeacherDashboard() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">College</label>
                     <select value={college} onChange={e => setCollege(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Select College</option>
                       <option value="SOCET">SOCET</option>
                       <option value="ASOIT">ASOIT</option>
                     </select>
@@ -184,6 +211,7 @@ export function TeacherDashboard() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">Programme</label>
                     <select value={programme} onChange={e => setProgramme(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Select Programme</option>
                       <option value="BTech">B.Tech</option>
                       <option value="MTech">M.Tech</option>
                       <option value="MCA">MCA</option>
@@ -197,6 +225,7 @@ export function TeacherDashboard() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">Branch</label>
                     <select value={branch} onChange={e => setBranch(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Select Branch</option>
                       <option value="CSE">CSE</option>
                       <option value="IT">IT</option>
                       <option value="ECE">ECE</option>
@@ -212,6 +241,7 @@ export function TeacherDashboard() {
                   <div>
                     <label className="block text-sm font-medium text-slate-500 mb-1">Semester</label>
                     <select value={semester} onChange={e => setSemester(e.target.value)} className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500">
+                      <option value="">Select Sem</option>
                       {[1,2,3,4,5,6,7,8].map(s => <option key={s} value={String(s)}>{s}</option>)}
                     </select>
                   </div>
@@ -224,6 +254,7 @@ export function TeacherDashboard() {
                     onChange={e => setSubject(e.target.value)} 
                     className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 outline-none focus:ring-2 focus:ring-blue-500"
                   >
+                    <option value="">Select Subject</option>
                     <option value="FSWD">FSWD</option>
                     <option value="AOC">AOC</option>
                     <option value="IOT">IOT</option>
@@ -261,9 +292,34 @@ export function TeacherDashboard() {
                 <Activity className="mx-auto text-rose-500 animate-pulse" size={48} />
                 <div>
                   <h3 className="text-xl font-bold text-slate-800">Scanner Network Active</h3>
-                  <p className="text-slate-500 mt-1">
-                    System is actively listening for registered student devices.
-                  </p>
+                  
+                  {sessionInfo && (
+                    <div className="mt-4 flex flex-col items-center gap-2">
+                       <div className="text-sm font-bold text-blue-600 bg-blue-50 px-4 py-1.5 rounded-full border border-blue-100">
+                        {sessionInfo.subject}
+                      </div>
+                      <div className="flex flex-wrap justify-center gap-x-4 gap-y-1 text-sm text-slate-500">
+                        <span className="font-semibold text-slate-700">{sessionInfo.college}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>{sessionInfo.programme} - {sessionInfo.branch}</span>
+                        <span className="text-slate-300">|</span>
+                        <span>Sem {sessionInfo.semester}</span>
+                      </div>
+                      <div className="text-xs text-slate-400 mt-1">
+                        Monitoring: <span className="text-slate-600 font-mono font-bold">Section {sessionInfo.sections?.join(", ")}</span>
+                        <span className="mx-2 text-slate-300">•</span>
+                        <span className={`font-bold ${stats.live_devices > 0 ? "text-emerald-600" : "text-slate-400"}`}>
+                          {stats.live_devices} Devices Online
+                        </span>
+                      </div>
+                    </div>
+                  )}
+
+                  {!sessionInfo && (
+                    <p className="text-slate-500 mt-1">
+                      System is actively listening for registered student devices.
+                    </p>
+                  )}
                 </div>
                 <div className="flex gap-4 justify-center">
                   <Link to="/admin/attendance" className="bg-white border border-slate-200 text-slate-700 hover:bg-slate-100 px-6 py-2.5 rounded-xl font-semibold transition-colors flex items-center gap-2">
@@ -305,32 +361,8 @@ export function TeacherDashboard() {
             </div>
           )}
 
-          <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
-            <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-              <CalendarDays className="text-emerald-500" /> Current Timetable
-            </h2>
-            {timetable && timetable.subject ? (
-              <div className="bg-gradient-to-br from-emerald-50 to-teal-50 border border-emerald-100 p-5 rounded-2xl">
-                <div className="flex items-center gap-2 text-emerald-800 text-sm font-semibold mb-2">
-                  <Clock size={16} /> Scheduled Class Now
-                </div>
-                <div className="text-2xl font-bold text-slate-800">{timetable.subject}</div>
-                <div className="mt-4 flex flex-wrap gap-2 text-sm text-slate-600">
-                  <span className="bg-white/60 px-2 py-1 rounded-md">{timetable.programme}</span>
-                  <span className="bg-white/60 px-2 py-1 rounded-md">{timetable.branch}</span>
-                  <span className="bg-white/60 px-2 py-1 rounded-md">Sem {timetable.semester}</span>
-                </div>
-              </div>
-            ) : (
-              <div className="text-center py-6 text-slate-400">
-                <Clock className="mx-auto mb-2 opacity-50" size={32} />
-                <p className="text-sm text-slate-500">No classes scheduled right now</p>
-              </div>
-            )}
-          </div>
-        </div>
-
       </div>
     </div>
-  );
+  </div>
+);
 }

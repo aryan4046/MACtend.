@@ -62,10 +62,6 @@ export async function getSessionStats() {
   return await response.json();
 }
 
-export async function getCurrentTimetable() {
-  const response = await fetch(`${API_BASE_URL}/timetable/current`);
-  return await response.json();
-}
 
 export async function getSections(
   programme: string,
