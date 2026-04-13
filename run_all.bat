@@ -1,5 +1,5 @@
 @echo off
-setlocal enabledelayedexpansion
+setlocal
 
 :: Force directory to where the script is located
 cd /d "%~dp0"
@@ -24,15 +24,15 @@ echo.
 :: 1. Dependency Checks
 echo [!] Checking environment...
 
-if not exist ".venv" (
+if not exist .venv (
     color 0C
-    echo [ERROR] Virtual environment (.venv) not found!
+    echo [ERROR] Virtual environment (.venv) not found.
     echo Please create it using: python -m venv .venv
     pause
     exit /b
 )
 
-if not exist "frontend\node_modules" (
+if not exist frontend\node_modules (
     echo [!] node_modules missing. Attempting to install frontend dependencies...
     cd frontend && npm install && cd ..
 )
