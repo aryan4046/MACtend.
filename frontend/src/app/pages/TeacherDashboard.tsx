@@ -1,8 +1,8 @@
 import { useState, useEffect } from "react";
 import { Link, useNavigate } from "react-router";
 import { 
-  PlayCircle, Square, Clock, Users, Laptop, Radio, Activity,
-  ChevronRight, CalendarDays
+  PlayCircle, Square, Clock, Users, Laptop, Wifi, UserCheck,
+  ChevronRight, CalendarDays, ListChecks
 } from "lucide-react";
 import { 
   getSessionStatus, 
@@ -29,6 +29,7 @@ export function TeacherDashboard() {
   const [availableSections, setAvailableSections] = useState<string[]>([]);
   const [selectedSections, setSelectedSections] = useState<string[]>([]);
   const [isStarting, setIsStarting] = useState(false);
+  const [isSyncing, setIsSyncing] = useState(true);
 
   // Modal State
   const [modal, setModal] = useState({
@@ -43,18 +44,24 @@ export function TeacherDashboard() {
     setModal({ isOpen: true, title, message, type, onConfirm });
   };
 
+  // 1. Initial status sync on mount
   useEffect(() => {
-    checkStatus();
+    const initSync = async () => {
+      await checkStatus();
+      setIsSyncing(false);
+    };
+    initSync();
+  }, []);
+
+  // 2. Active Session Polling
+  useEffect(() => {
+    if (!isActive) return;
     
     // Poll stats if active
-    const statsInterval = setInterval(() => {
-      if (isActive) pollStats();
-    }, 5000);
+    const statsInterval = setInterval(pollStats, 5000);
 
-    // Sync status every 15 seconds to ensure timer is correct
-    const syncInterval = setInterval(() => {
-      if (isActive) checkStatus();
-    }, 15000);
+    // Sync full session status periodically
+    const syncInterval = setInterval(checkStatus, 15000);
     
     return () => {
       clearInterval(statsInterval);
@@ -90,16 +97,17 @@ export function TeacherDashboard() {
   const checkStatus = async () => {
     try {
       const res = await getSessionStatus();
-      setIsActive(res.is_active);
       if (res.is_active) {
         setSessionInfo(res);
         setRemainingSeconds(res.remaining_seconds || 0);
+        setIsActive(true);
         pollStats();
       } else {
+        setIsActive(false);
         setSessionInfo(null);
       }
     } catch (e) {
-      console.error(e);
+      console.error("Status Sync Error:", e);
     }
   };
 
@@ -205,9 +213,9 @@ export function TeacherDashboard() {
               <Clock size={18} />
               {Math.floor(remainingSeconds / 60)}:{String(remainingSeconds % 60).padStart(2, '0')}
             </div>
-            <div className="flex items-center gap-2 bg-rose-50 text-rose-600 px-4 py-2 rounded-full border border-rose-100 font-semibold shadow-sm animate-pulse">
-              <Radio size={18} className="animate-ping absolute opacity-20" />
-              <Radio size={18} />
+            <div className="flex items-center gap-2 bg-blue-50 text-blue-600 px-4 py-2 rounded-full border border-blue-100 font-semibold shadow-sm animate-pulse">
+              <Wifi size={18} className="animate-ping absolute opacity-20" />
+              <Wifi size={18} />
               Session In Progress
             </div>
           </div>
@@ -223,7 +231,12 @@ export function TeacherDashboard() {
               <PlayCircle className="text-blue-500" /> Session Controls
             </h2>
 
-            {!isActive ? (
+            {isSyncing ? (
+              <div className="py-12 flex flex-col items-center justify-center space-y-4">
+                <div className="w-10 h-10 border-4 border-blue-100 border-t-blue-600 rounded-full animate-spin" />
+                <p className="text-sm font-medium text-slate-500">Synchronizing session status...</p>
+              </div>
+            ) : !isActive ? (
               <form onSubmit={handleStart} className="space-y-4">
                 <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
                   <div>
@@ -315,7 +328,7 @@ export function TeacherDashboard() {
               </form>
             ) : (
               <div className="bg-slate-50 border border-slate-200 rounded-2xl p-6 text-center space-y-6">
-                <Activity className="mx-auto text-rose-500 animate-pulse" size={48} />
+                <UserCheck className="mx-auto text-blue-500 animate-bounce" size={48} />
                 <div>
                   <h3 className="text-xl font-bold text-slate-800">Scanner Network Active</h3>
                   
@@ -365,7 +378,7 @@ export function TeacherDashboard() {
           {isActive && (
             <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-200">
                <h2 className="text-lg font-semibold text-slate-800 mb-4 flex items-center gap-2">
-                <Activity className="text-indigo-500" /> Live Stats
+                <ListChecks className="text-indigo-500" /> Live Stats
               </h2>
               <div className="grid grid-cols-2 gap-4">
                 <div className="bg-slate-50 p-4 rounded-2xl border border-slate-100">
