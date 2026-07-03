@@ -12,8 +12,10 @@ import {
   stopSession 
 } from "../api";
 import { CustomModal } from "../components/CustomModal";
+import { useAuth } from "../AuthContext";
 
 export function TeacherDashboard() {
+  const { faculty } = useAuth();
   const navigate = useNavigate();
   const [isActive, setIsActive] = useState(false);
   const [remainingSeconds, setRemainingSeconds] = useState(0);
@@ -204,7 +206,7 @@ export function TeacherDashboard() {
       {/* Header Panel */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-bold text-slate-800">Faculty Dashboard</h1>
+          <h1 className="text-2xl font-bold text-slate-800">Welcome, {faculty?.name || "Faculty"}!</h1>
           <p className="text-slate-500">Manage classes and live attendance networking</p>
         </div>
         {isActive && (

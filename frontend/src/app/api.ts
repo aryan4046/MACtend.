@@ -29,6 +29,15 @@ export async function loginTeacher(data: any) {
   return await response.json();
 }
 
+export async function registerTeacher(data: any) {
+  const response = await fetch(`${API_BASE_URL}/faculty/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  return await response.json();
+}
+
 export async function startSession(data: {
   programme: string,
   college: string,
@@ -92,3 +101,28 @@ export async function toggleAttendance(data: {
 // Export URLs
 export const EXPORT_CSV_URL = `http://${window.location.hostname}:5000/api/export/csv`;
 export const EXPORT_EXCEL_URL = `http://${window.location.hostname}:5000/api/export/excel`;
+
+export async function getAnalysisAttendance(params: {
+  programme: string,
+  college: string,
+  branch: string,
+  semester: string,
+  sections: string[],
+  subject: string
+}) {
+  const queryParams = new URLSearchParams({
+    programme: params.programme,
+    college: params.college,
+    branch: params.branch,
+    semester: params.semester,
+    sections: params.sections.join(","),
+    subject: params.subject
+  });
+  const response = await fetch(`${API_BASE_URL}/analysis/attendance?${queryParams.toString()}`);
+  return await response.json();
+}
+
+export async function getAllAnalysisAttendance() {
+  const response = await fetch(`${API_BASE_URL}/analysis/attendance/all`);
+  return await response.json();
+}

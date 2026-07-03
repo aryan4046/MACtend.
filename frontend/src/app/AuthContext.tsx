@@ -1,30 +1,36 @@
 import React, { createContext, useContext, useState, ReactNode } from 'react';
 
+export interface Faculty {
+  name: string;
+  email: string;
+}
+
 interface AuthContextType {
   isAuthenticated: boolean;
-  login: () => void;
+  faculty: Faculty | null;
+  login: (facultyData: Faculty) => void;
   logout: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(() => {
-    return localStorage.getItem('auth') === 'true';
-  });
+  const [isAuthenticated, setIsAuthenticated] = useState<boolean>(false);
 
-  const login = () => {
+  const [faculty, setFaculty] = useState<Faculty | null>(null);
+
+  const login = (facultyData: Faculty) => {
     setIsAuthenticated(true);
-    localStorage.setItem('auth', 'true');
+    setFaculty(facultyData);
   };
 
   const logout = () => {
     setIsAuthenticated(false);
-    localStorage.removeItem('auth');
+    setFaculty(null);
   };
 
   return (
-    <AuthContext.Provider value={{ isAuthenticated, login, logout }}>
+    <AuthContext.Provider value={{ isAuthenticated, faculty, login, logout }}>
       {children}
     </AuthContext.Provider>
   );

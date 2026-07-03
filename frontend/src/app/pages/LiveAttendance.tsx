@@ -1,16 +1,19 @@
 import { useState, useEffect } from "react";
 import { Link } from "react-router";
 import { 
-  Users, Download, Check, X, Search, RefreshCw, AlertCircle, Laptop
+  Users, Download, Check, X, Search, RefreshCw, AlertCircle, Laptop, Radio, TrendingUp, TrendingDown, Activity, Wifi
 } from "lucide-react";
 import { getAttendance, toggleAttendance, getSessionStatus, EXPORT_EXCEL_URL, EXPORT_CSV_URL } from "../api";
 import { CustomModal } from "../components/CustomModal";
+import { toast } from "sonner";
+import { useRef } from "react";
 
 export function LiveAttendance() {
   const [logs, setLogs] = useState<any[]>([]);
   const [sessionStatus, setSessionStatus] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [searchTerm, setSearchTerm] = useState("");
+  const [rssiData, setRssiData] = useState<Record<string, any>>({});
 
   // Modal State
   const [modal, setModal] = useState({
@@ -24,11 +27,65 @@ export function LiveAttendance() {
     setModal({ isOpen: true, title, message, type });
   };
 
+  const prevLogsRef = useRef<any[]>([]);
+
   useEffect(() => {
     fetchLogs();
     const interval = setInterval(fetchLogs, 10000); // refresh every 10s
     return () => clearInterval(interval);
   }, []);
+
+  useEffect(() => {
+    let eventSource: EventSource | null = null;
+    
+    const connectSSE = () => {
+      try {
+        eventSource = new EventSource(`http://${window.location.hostname}:5001/api/rssi/stream`);
+        eventSource.onmessage = (event) => {
+          try {
+            const parsed = JSON.parse(event.data);
+            if (parsed.success && parsed.data) {
+              setRssiData(parsed.data);
+            }
+          } catch (e) {
+            console.error("Error parsing RSSI SSE data", e);
+          }
+        };
+        eventSource.onerror = (err) => {
+          console.debug("RSSI SSE connection error, closing interface...");
+          if (eventSource) {
+            eventSource.close();
+          }
+        };
+      } catch (err) {
+        console.error("Error establishing RSSI SSE stream", err);
+      }
+    };
+
+    connectSSE();
+    
+    return () => {
+      if (eventSource) {
+        eventSource.close();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    // Detect newly connected students
+    if (prevLogsRef.current.length > 0 && logs.length > 0) {
+      logs.forEach(log => {
+        const prevLog = prevLogsRef.current.find(p => p.studentId === log.studentId);
+        if (prevLog && prevLog.time === "--:--" && log.time !== "--:--" && log.source !== "manual") {
+          toast.success(`${log.name} connected to the network!`, {
+            icon: "📡",
+            duration: 4000
+          });
+        }
+      });
+    }
+    prevLogsRef.current = logs;
+  }, [logs]);
 
   const fetchLogs = async () => {
     try {
@@ -42,6 +99,17 @@ export function LiveAttendance() {
       }
       if (statusRes.is_active) {
         setSessionStatus(statusRes);
+      }
+
+      // Fetch RSSI stats via backup polling
+      try {
+        const rssiRes = await fetch(`http://${window.location.hostname}:5001/api/rssi/live`);
+        const rssiJson = await rssiRes.json();
+        if (rssiJson.success) {
+          setRssiData(rssiJson.data || {});
+        }
+      } catch (rssiErr) {
+        console.debug("RSSI service offline");
       }
     } catch (err) {
       console.error(err);
@@ -103,6 +171,33 @@ export function LiveAttendance() {
         </div>
       </div>
 
+      {sessionStatus && (
+        <div className="bg-gradient-to-r from-slate-900 to-indigo-950 rounded-3xl p-6 relative overflow-hidden flex flex-col sm:flex-row items-start sm:items-center justify-between text-white shadow-xl border border-indigo-900/50 gap-4">
+          <div className="absolute -left-20 w-64 h-64 bg-blue-500/10 rounded-full blur-3xl pointer-events-none" />
+          <div className="absolute right-0 top-0 w-64 h-64 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
+          
+          <div className="relative z-10 flex items-center gap-5">
+             <div className="relative flex items-center justify-center w-12 h-12 shrink-0">
+               {/* Radar Waves */}
+               <div className="absolute inset-0 rounded-full border-2 border-emerald-400/30 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite]"></div>
+               <div className="absolute inset-2 rounded-full border-2 border-emerald-400/40 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite_0.5s]"></div>
+               <div className="absolute inset-4 rounded-full border-2 border-emerald-400/50 animate-[ping_2.5s_cubic-bezier(0,0,0.2,1)_infinite_1s]"></div>
+               <div className="bg-emerald-500 rounded-full w-3 h-3 shadow-[0_0_20px_rgba(16,185,129,1)] z-10"></div>
+             </div>
+             <div>
+               <h3 className="text-lg font-black tracking-wide text-transparent bg-clip-text bg-gradient-to-r from-emerald-300 to-teal-300 flex items-center gap-2">
+                  <Radio size={18} className="text-emerald-400" /> Network Scanning Active
+               </h3>
+               <p className="text-slate-300 text-sm mt-1 font-medium">Continuously monitoring for registered device MAC addresses.</p>
+             </div>
+          </div>
+          <div className="relative z-10 text-left sm:text-right bg-slate-800/50 backdrop-blur-md px-5 py-3 rounded-2xl border border-slate-700/50">
+             <div className="text-3xl font-black text-emerald-400 leading-none">{logs.filter(l => l.time !== "--:--").length}</div>
+             <div className="text-[10px] uppercase tracking-widest text-slate-400 font-bold mt-1">Nodes Connected</div>
+          </div>
+        </div>
+      )}
+
       <div className="bg-white border text-left border-slate-200 rounded-3xl overflow-hidden shadow-sm">
         <div className="p-4 border-b border-slate-200 bg-slate-50/50">
           <div className="relative max-w-sm">
@@ -127,6 +222,7 @@ export function LiveAttendance() {
                 <th className="px-6 py-4 font-semibold">Enrollment No.</th>
                 <th className="px-6 py-4 font-semibold">Subject</th>
                 <th className="px-6 py-4 font-semibold">Network Status</th>
+                <th className="px-6 py-4 font-semibold">Signal RSSI (dBm)</th>
                 <th className="px-6 py-4 font-semibold">Marked At</th>
                 <th className="px-6 py-4 font-semibold text-center">Attendance</th>
                 <th className="px-6 py-4 font-semibold text-center">Action</th>
@@ -135,7 +231,7 @@ export function LiveAttendance() {
             <tbody>
               {filteredLogs.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-6 py-12 text-center text-slate-500">
+                  <td colSpan={8} className="px-6 py-12 text-center text-slate-500">
                     <AlertCircle className="mx-auto mb-2 text-slate-400" size={32} />
                     {isLoading ? "Loading logs..." : "No attendance logs found for this session."}
                   </td>
@@ -158,6 +254,46 @@ export function LiveAttendance() {
                            Offline
                          </span>
                       )}
+                    </td>
+                    <td className="px-6 py-4 text-left">
+                      {(() => {
+                        const rssi = rssiData[log.studentId];
+                        if (!log.is_online || !rssi || rssi.current === null || rssi.current === undefined) {
+                          return <span className="text-slate-400 font-mono">--</span>;
+                        }
+                        
+                        let badgeClass = "bg-slate-100 text-slate-700 border-slate-200";
+                        if (rssi.quality === "Excellent") badgeClass = "bg-emerald-50 text-emerald-700 border-emerald-200";
+                        else if (rssi.quality === "Good") badgeClass = "bg-teal-50 text-teal-700 border-teal-200";
+                        else if (rssi.quality === "Fair") badgeClass = "bg-amber-50 text-amber-700 border-amber-200";
+                        else if (rssi.quality === "Weak") badgeClass = "bg-orange-50 text-orange-700 border-orange-200";
+                        else if (rssi.quality === "Very Weak") badgeClass = "bg-rose-50 text-rose-700 border-rose-200";
+                        
+                        return (
+                          <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5">
+                              <span className={`inline-flex items-center gap-1 py-0.5 px-2 rounded-md text-xs font-bold border ${badgeClass}`}>
+                                <Wifi size={10} className="shrink-0" />
+                                {rssi.current} dBm
+                              </span>
+                              <span className="text-xs text-slate-600 font-medium">{rssi.quality}</span>
+                              {rssi.trend === "Improving" && (
+                                <TrendingUp size={12} className="text-emerald-500 animate-bounce" title="Signal Improving" />
+                              )}
+                              {rssi.trend === "Degrading" && (
+                                <TrendingDown size={12} className="text-rose-500 animate-pulse" title="Signal Degrading" />
+                              )}
+                            </div>
+                            <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-slate-400">
+                              <span className="flex items-center gap-0.5">
+                                <Activity size={10} /> Stability: {rssi.stability_pct}% ({rssi.stability_label})
+                              </span>
+                              <span>•</span>
+                              <span>Avg: {rssi.average} dBm</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
                     </td>
                     <td className="px-6 py-4 text-slate-600">{log.time || "--:--"}</td>
                     <td className="px-6 py-4 text-center">

@@ -13,6 +13,9 @@ export default defineConfig({
     tailwindcss(),
   ],
 
+  // ✅ Prevent Vite from hiding our bat messages
+  clearScreen: false,
+
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -22,9 +25,6 @@ export default defineConfig({
   server: {
     // ✅ FORCE Raspberry Pi hotspot interface
     host: true,
-    
-    // ✅ Prevent Vite from hiding our bat messages
-    clearScreen: false,
 
     // ✅ frontend port
     port: 5173,
@@ -32,7 +32,6 @@ export default defineConfig({
 
     // ✅ allow mobile access
     cors: true,
-    https: false,
 
     // ✅ Fix mobile hot reload issues
     hmr: {

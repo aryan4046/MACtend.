@@ -21,7 +21,7 @@ export function TeacherLogin() {
     try {
       const response = await loginTeacher({ email, password });
       if (response && response.success === true) {
-        login();
+        login(response.faculty);
         navigate("/admin/dashboard");
       } else {
         setError(response?.error || response?.message || "Invalid credentials. Please try again.");

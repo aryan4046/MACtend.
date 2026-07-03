@@ -6,6 +6,7 @@ import { TeacherDashboard } from "./pages/TeacherDashboard";
 import { LiveAttendance } from "./pages/LiveAttendance";
 import { RoleSelection } from "./pages/RoleSelection";
 import { TeacherRegistration } from "./pages/TeacherRegistration";
+import { AnalysisDashboard } from "./pages/AnalysisDashboard";
 
 export const router = createBrowserRouter([
   {
@@ -53,6 +54,14 @@ export const router = createBrowserRouter([
         element: (
           <ProtectedRoute>
             <LiveAttendance />
+          </ProtectedRoute>
+        ),
+      },
+      {
+        path: "admin/analysis",
+        element: (
+          <ProtectedRoute>
+            <AnalysisDashboard />
           </ProtectedRoute>
         ),
       },

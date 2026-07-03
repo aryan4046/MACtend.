@@ -372,8 +372,29 @@ def login():
     email = data.get("email")
     password = data.get("password")
     
+    # 1. Check for real faculty first
+    faculty = db.faculties.find_one({"email": email})
+    if faculty and check_password_hash(faculty["password"], password):
+        return jsonify({
+            "success": True,
+            "message": f"Welcome, {faculty['name']}",
+            "token": "teacher-session-token",
+            "faculty": {
+                "name": faculty["name"],
+                "email": faculty["email"]
+            }
+        })
+
+    # 2. Fallback to mock admin
     if (email == "admin@college.edu" and password == "admin123") or (email == "admin@edu.in" and password == "admin123"):
-        return jsonify({"success": True, "token": "mock-jwt-token"})
+        return jsonify({
+            "success": True, 
+            "token": "mock-jwt-token",
+            "faculty": {
+                "name": "System Admin",
+                "email": email
+            }
+        })
     return jsonify({"success": False, "error": "Invalid credentials"}), 401
 @app.route("/api/session/start", methods=["POST"])
 def start_session():
@@ -704,6 +725,99 @@ def toggle_attendance():
             return jsonify({"success": True})
     except Exception as e:
         return jsonify({"success": False, "error": str(e)}), 500
+
+@app.route("/api/analysis/attendance", methods=["GET"])
+def analysis_attendance():
+    programme = request.args.get("programme", "").lower().strip()
+    college = request.args.get("college", "").strip()
+    branch = request.args.get("branch", "").lower().strip()
+    semester = str(request.args.get("semester", "")).strip()
+    sections_str = request.args.get("sections", "").strip()
+    subject = request.args.get("subject", "").strip()
+
+    if not all([programme, college, branch, semester, subject, sections_str]):
+        return jsonify({"success": False, "error": "Missing parameters"}), 400
+
+    sections = sections_str.split(",")
+
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+
+    student_query = {
+        "programme": ci_reg(programme),
+        "college": ci_reg(college),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(semester),
+        "$or": section_queries
+    }
+
+    students = list(db.students.find(student_query))
+    total_students = len(students)
+    student_ids = [s["_id"] for s in students]
+
+    # Get all attendance logs for this subject and these students
+    logs = list(db.attendance.find({
+        "subject": subject,
+        "student_id": {"$in": student_ids}
+    }))
+
+    # Group by date
+    daily_stats = {}
+    for log in logs:
+        date = log.get("date")
+        if not date: continue
+        if date not in daily_stats:
+            daily_stats[date] = set()
+        daily_stats[date].add(str(log["student_id"]))
+
+    history = []
+    # Sort dates chronologically
+    sorted_dates = sorted(list(daily_stats.keys()))
+    
+    for date in sorted_dates:
+        present = len(daily_stats[date])
+        history.append({
+            "date": date,
+            "present": present,
+            "absent": max(0, total_students - present)
+        })
+
+    return jsonify({
+        "success": True,
+        "total_students": total_students,
+        "history": history
+    })
+
+@app.route("/api/analysis/attendance/all", methods=["GET"])
+def analysis_attendance_all():
+    total_students = db.students.count_documents({})
+    logs = list(db.attendance.find({}))
+    
+    daily_stats = {}
+    for log in logs:
+        date = log.get("date")
+        if not date: continue
+        if date not in daily_stats:
+            daily_stats[date] = set()
+        daily_stats[date].add(str(log["student_id"]))
+
+    history = []
+    sorted_dates = sorted(list(daily_stats.keys()))
+    
+    for date in sorted_dates:
+        present = len(daily_stats[date])
+        history.append({
+            "date": date,
+            "present": present,
+            "absent": max(0, total_students - present)
+        })
+        
+    return jsonify({
+        "success": True,
+        "total_students": total_students,
+        "history": history
+    })
+
 
 @app.route("/api/status", methods=["GET"])
 def status():

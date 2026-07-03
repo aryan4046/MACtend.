@@ -6,6 +6,7 @@ import { Label } from "../components/ui/label";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "../components/ui/card";
 import { User, ShieldCheck, Loader2, ArrowLeft, Mail, Lock } from "lucide-react";
 import { toast } from "sonner";
+import { registerTeacher } from "../api";
 
 export function TeacherRegistration() {
   const [name, setName] = useState("");
@@ -19,17 +20,7 @@ export function TeacherRegistration() {
     setIsLoading(true);
 
     try {
-      const response = await fetch("/api/faculty/register", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name,
-          email,
-          password
-        }),
-      });
-
-      const data = await response.json();
+      const data = await registerTeacher({ name, email, password });
       if (data.success) {
         toast.success("Account Created Successfully!");
         navigate("/teacher/login"); 

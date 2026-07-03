@@ -28,22 +28,28 @@ echo -e "\e[1;32m[OK] Environment verified.\e[0m"
 echo -e "\e[1;34m[!] Cleaning up old processes...\e[0m"
 pkill -f "python3 backend/app.py"
 pkill -f "python3 backend/scanner.py"
+pkill -f "python3 backend/rssi_service.py"
 pkill -f "vite"
 
-echo -e "\e[1;36m[1/3] Starting Backend Server (Port 5000)...\e[0m"
+echo -e "\e[1;36m[1/4] Starting Backend Server (Port 5000)...\e[0m"
 python3 backend/app.py > backend_log.txt 2>&1 &
 
-echo -e "\e[1;36m[2/3] Starting Attendance Scanner Engine...\e[0m"
+echo -e "\e[1;36m[2/4] Starting Attendance Scanner Engine...\e[0m"
 # Scanner might need sudo for certain low-level network operations
 sudo backend/.venv/bin/python3 backend/scanner.py > scanner_log.txt 2>&1 &
 
-echo -e "\e[1;36m[3/3] Starting Frontend (Vite UI)...\e[0m"
+echo -e "\e[1;36m[3/4] Starting RSSI Signal Service (Port 5001)...\e[0m"
+# RSSI scanner might need sudo for low-level wireless tools
+sudo backend/.venv/bin/python3 backend/rssi_service.py > rssi_log.txt 2>&1 &
+
+echo -e "\e[1;36m[4/4] Starting Frontend (Vite UI)...\e[0m"
 cd frontend && npm run dev -- --host > ../frontend_log.txt 2>&1 &
 
 echo -e "\e[1;32m-------------------------------------------------------------\e[0m"
 echo -e "\e[1;32m SUCCESS: ALL COMPONENTS ARE INITIALIZING ON LINUX/PI\e[0m"
 echo -e "\e[1;32m-------------------------------------------------------------\e[0m"
 echo -e " Backend: http://localhost:5000"
+echo -e " RSSI Service: http://localhost:5001"
 echo -e " Frontend: http://localhost:5173"
 echo -e ""
 echo -e " To stop everything, run: pkill -f \"python3\" && pkill -f \"vite\""
