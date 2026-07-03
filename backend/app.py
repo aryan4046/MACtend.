@@ -407,6 +407,9 @@ def start_session():
         {"$set": {"connected_since": None, "last_seen": None}}
     )
 
+    # Get the faculty name from payload (sent by the frontend Auth context)
+    faculty_name = data.get("faculty_name", "System Admin")
+
     db.active_session.update_one(
         {"id": 1},
         {
@@ -419,7 +422,8 @@ def start_session():
                 "sections": data.get("sections"),
                 "subject": data.get("subject"),
                 "start_at": datetime.now(),
-                "is_active": True
+                "is_active": True,
+                "faculty_name": faculty_name
             }
         },
         upsert=True
@@ -714,9 +718,16 @@ def toggle_attendance():
         obj_id = ObjectId(student_id)
         if present:
             now_time = datetime.now().strftime("%H:%M:%S")
+            # Get faculty name from active session or fallback to latest success log
+            session = db.active_session.find_one({"id": 1})
+            faculty_name = session.get("faculty_name") if session else None
+            if not faculty_name:
+                admin_faculty = db.faculties.find_one({"email": "admin@college.edu"})
+                faculty_name = admin_faculty.get("name") if admin_faculty else "Admin Teacher"
+
             db.attendance.update_one(
                 {"student_id": obj_id, "subject": subject, "date": today},
-                {"$set": {"time": now_time, "source": source}},
+                {"$set": {"time": now_time, "source": source, "faculty_name": faculty_name}},
                 upsert=True
             )
             return jsonify({"success": True, "time": now_time, "source": source})
@@ -822,6 +833,274 @@ def analysis_attendance_all():
 @app.route("/api/status", methods=["GET"])
 def status():
     return jsonify({"status": "online", "network": "local", "db": "mongodb"})
+
+@app.route("/api/analysis/at-risk", methods=["GET"])
+def get_at_risk_students():
+    subject = request.args.get("subject", "").strip()
+    
+    # If no subject is passed, fallback to active session subject
+    if not subject:
+        session = db.active_session.find_one({"id": 1})
+        if session and session.get("is_active"):
+            subject = session.get("subject", "")
+            
+    # If still no subject, fallback to the most recent subject logged in database
+    if not subject:
+        latest_log = db.attendance.find_one({}, sort=[("date", -1)])
+        if latest_log:
+            subject = latest_log.get("subject", "")
+            
+    if not subject:
+        return jsonify({"success": False, "error": "No subject specified and no attendance history found in database"}), 400
+
+    # Get all students
+    students = list(db.students.find({}))
+    if not students:
+        return jsonify({"success": True, "critical": [], "borderline": [], "good": [], "total_dates_count": 0})
+        
+    student_ids = [s["_id"] for s in students]
+
+    # Find unique dates where attendance was taken for this subject
+    unique_dates = db.attendance.distinct("date", {"subject": subject})
+    total_dates = len(unique_dates)
+
+    # Fetch all logs for this subject
+    logs = list(db.attendance.find({
+        "subject": subject,
+        "student_id": {"$in": student_ids}
+    }))
+
+    # Map student to their present count (unique dates present)
+    student_attendance_counts = {}
+    student_dates = {}
+    for log in logs:
+        s_id = str(log["student_id"])
+        date = log.get("date")
+        if not date:
+            continue
+        if s_id not in student_dates:
+            student_dates[s_id] = set()
+        student_dates[s_id].add(date)
+        
+    for s_id, dates in student_dates.items():
+        student_attendance_counts[s_id] = len(dates)
+
+    critical = []
+    borderline = []
+    good = []
+
+    for s in students:
+        s_id = str(s["_id"])
+        present_count = student_attendance_counts.get(s_id, 0)
+        
+        # Calculate rate. If no sessions have run, count as 100% (good) to avoid false warnings.
+        rate = round((present_count / total_dates) * 100, 1) if total_dates > 0 else 100.0
+        
+        student_info = {
+            "id": s_id,
+            "name": s.get("name", "Unknown"),
+            "enrollment_number": s.get("enrollment_number", "N/A"),
+            "section": s.get("section", "N/A"),
+            "branch": s.get("branch", "N/A"),
+            "present_count": present_count,
+            "total_count": total_dates,
+            "rate": rate
+        }
+
+        if rate < 75.0:
+            student_info["status"] = "Critical"
+            critical.append(student_info)
+        elif rate <= 80.0:
+            student_info["status"] = "Borderline"
+            borderline.append(student_info)
+        else:
+            student_info["status"] = "Good"
+            good.append(student_info)
+
+    # Sort each list by rate ascending (lowest attendance first)
+    critical.sort(key=lambda x: x["rate"])
+    borderline.sort(key=lambda x: x["rate"])
+    good.sort(key=lambda x: x["rate"])
+
+    return jsonify({
+        "success": True,
+        "subject": subject,
+        "total_dates_count": total_dates,
+        "critical": critical,
+        "borderline": borderline,
+        "good": good
+    })
+
+@app.route("/api/analysis/proxy-check", methods=["GET"])
+def get_proxy_check():
+    session = db.active_session.find_one({"id": 1})
+    if not session:
+        return jsonify({"success": False, "error": "No active session"}), 404
+        
+    subject = session.get("subject", "")
+    unmatched_macs = session.get("unmatched_macs", [])
+    
+    today = datetime.now().strftime("%Y-%m-%d")
+    
+    # Get students for the active session filter
+    programme = session.get("programme")
+    college = session.get("college")
+    branch = session.get("branch")
+    semester = session.get("semester")
+    sections = session.get("sections", [])
+    
+    if not programme or not subject:
+        return jsonify({
+            "success": True, 
+            "duplicate_ips": [], 
+            "unmatched_macs": [], 
+            "students_present": []
+        })
+
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+    
+    filter_query = {
+        "programme": ci_reg(programme),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(semester),
+        "$or": section_queries,
+        "$and": [
+            {"$or": [
+                {"college": ci_reg(college)},
+                {"college": {"$exists": False}},
+                {"college": ""}
+            ]}
+        ]
+    }
+    
+    students = list(db.students.find(filter_query))
+    student_ids = [s["_id"] for s in students]
+    
+    # Find all attendance records marked today for these students and this subject
+    attendance_records = list(db.attendance.find({
+        "student_id": {"$in": student_ids},
+        "subject": subject,
+        "date": today
+    }))
+    
+    present_student_ids = {str(a["student_id"]) for a in attendance_records}
+    
+    # Gather info of all present students
+    present_students = []
+    ip_to_students = {}
+    
+    for s in students:
+        s_id = str(s["_id"])
+        if s_id in present_student_ids:
+            reg_ip = s.get("registered_ip", "N/A")
+            student_info = {
+                "id": s_id,
+                "name": s.get("name", "Unknown"),
+                "enrollment_number": s.get("enrollment_number", "N/A"),
+                "mac_address": s.get("mac_address", "N/A"),
+                "registered_ip": reg_ip,
+                "section": s.get("section", "N/A")
+            }
+            present_students.append(student_info)
+            
+            # Track duplicates for IP (ignore N/A or localhost)
+            if reg_ip and reg_ip != "N/A" and reg_ip not in ["127.0.0.1", "localhost"]:
+                if reg_ip not in ip_to_students:
+                    ip_to_students[reg_ip] = []
+                ip_to_students[reg_ip].append(student_info)
+                
+    # Filter duplicate IPs
+    duplicate_ips = []
+    for ip, st_list in ip_to_students.items():
+        if len(st_list) > 1:
+            duplicate_ips.append({
+                "ip": ip,
+                "count": len(st_list),
+                "students": st_list
+            })
+            
+    return jsonify({
+        "success": True,
+        "subject": subject,
+        "date": today,
+        "duplicate_ips": duplicate_ips,
+        "unmatched_macs": unmatched_macs,
+        "students_present": present_students
+    })
+
+@app.route("/api/analysis/date-details", methods=["GET"])
+def get_date_details():
+    date_str = request.args.get("date", "").strip()
+    if not date_str:
+        return jsonify({"success": False, "error": "No date specified"}), 400
+        
+    logs = list(db.attendance.find({"date": date_str}))
+    if not logs:
+        return jsonify({"success": True, "date": date_str, "subjects": []})
+        
+    subject_logs = {}
+    for log in logs:
+        subject = log.get("subject", "Unknown")
+        if subject not in subject_logs:
+            subject_logs[subject] = []
+        subject_logs[subject].append(log)
+        
+    subjects_data = []
+    for subject, s_logs in subject_logs.items():
+        present_student_ids = {str(l["student_id"]) for l in s_logs}
+        present_count = len(present_student_ids)
+        
+        from bson import ObjectId
+        obj_ids = []
+        for s_id in present_student_ids:
+            try:
+                obj_ids.append(ObjectId(s_id))
+            except: pass
+            
+        student_records = list(db.students.find({"_id": {"$in": obj_ids}}))
+        total_students = db.students.count_documents({})
+        if student_records:
+            ref = student_records[0]
+            prog = ref.get("programme")
+            branch = ref.get("branch")
+            sem = ref.get("semester")
+            
+            class_size = db.students.count_documents({
+                "programme": prog,
+                "branch": branch,
+                "semester": sem
+            })
+            if class_size > 0:
+                total_students = class_size
+                
+        absent_count = max(0, total_students - present_count)
+        rate = round((present_count / total_students) * 100, 1) if total_students > 0 else 0.0
+        
+        # Find faculty name from logs or database registers
+        faculty_name = None
+        for l in s_logs:
+            if l.get("faculty_name"):
+                faculty_name = l.get("faculty_name")
+                break
+        if not faculty_name:
+            admin_faculty = db.faculties.find_one({"email": "admin@college.edu"})
+            faculty_name = admin_faculty.get("name") if admin_faculty else "Admin Teacher"
+
+        subjects_data.append({
+            "subject_name": subject,
+            "present_count": present_count,
+            "absent_count": absent_count,
+            "total_count": total_students,
+            "rate": rate,
+            "faculty_name": faculty_name
+        })
+        
+    return jsonify({
+        "success": True,
+        "date": date_str,
+        "subjects": subjects_data
+    })
 
 if __name__ == "__main__":
     print("[INFO] Resetting active session on startup...")

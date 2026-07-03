@@ -126,3 +126,28 @@ export async function getAllAnalysisAttendance() {
   const response = await fetch(`${API_BASE_URL}/analysis/attendance/all`);
   return await response.json();
 }
+
+export async function getAtRiskStudents(subject: string = "") {
+  const response = await fetch(`${API_BASE_URL}/analysis/at-risk?subject=${encodeURIComponent(subject)}`);
+  return await response.json();
+}
+
+export async function getProxyCheck() {
+  const response = await fetch(`${API_BASE_URL}/analysis/proxy-check`);
+  return await response.json();
+}
+
+export async function getLiveRssi() {
+  try {
+    const response = await fetch(`http://${window.location.hostname}:5001/api/rssi/live`);
+    return await response.json();
+  } catch (e) {
+    console.error("RSSI service is not running", e);
+    return { success: false, data: {} };
+  }
+}
+
+export async function getDateDetails(date: string) {
+  const response = await fetch(`${API_BASE_URL}/analysis/date-details?date=${encodeURIComponent(date)}`);
+  return await response.json();
+}

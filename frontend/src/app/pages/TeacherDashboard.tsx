@@ -166,7 +166,8 @@ export function TeacherDashboard() {
         branch, 
         semester, 
         sections: selectedSections, 
-        subject 
+        subject,
+        faculty_name: faculty?.name || "System Admin"
       });
       if (res.success) {
         setIsActive(true);

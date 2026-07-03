@@ -247,13 +247,15 @@ def mark_attendance():
                             pass
 
                     if not already_marked:
+                        faculty_name = session.get("faculty_name", "Department Faculty")
                         db.attendance.insert_one({
                             "student_id": s["_id"],
                             "subject": subject,
                             "date": today,
                             "time": now.strftime("%H:%M:%S"),
                             "source": "auto",
-                            "connection_duration": int(duration)
+                            "connection_duration": int(duration),
+                            "faculty_name": faculty_name
                         })
 
                         print(f"[OK] Attendance Marked: {s.get('name')} (Signal: {signal_level})")
