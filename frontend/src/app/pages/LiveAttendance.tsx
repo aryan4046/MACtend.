@@ -278,10 +278,14 @@ export function LiveAttendance() {
                               </span>
                               <span className="text-xs text-slate-600 font-medium">{rssi.quality}</span>
                               {rssi.trend === "Improving" && (
-                                <TrendingUp size={12} className="text-emerald-500 animate-bounce" title="Signal Improving" />
+                                <span title="Signal Improving">
+                                  <TrendingUp size={12} className="text-emerald-500 animate-bounce" />
+                                </span>
                               )}
                               {rssi.trend === "Degrading" && (
-                                <TrendingDown size={12} className="text-rose-500 animate-pulse" title="Signal Degrading" />
+                                <span title="Signal Degrading">
+                                  <TrendingDown size={12} className="text-rose-500 animate-pulse" />
+                                </span>
                               )}
                             </div>
                             <div className="flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-[10px] text-slate-400">
