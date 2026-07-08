@@ -44,7 +44,8 @@ export async function startSession(data: {
   branch: string,
   semester: string,
   sections: string[],
-  subject: string
+  subject: string,
+  faculty_name?: string
 }) {
   const response = await fetch(`${API_BASE_URL}/session/start`, {
     method: "POST",

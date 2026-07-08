@@ -16,6 +16,7 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2' # Suppress TensorFlow INFO messages
 # We will import face_recognition inside the routes to allow app to start 
 # even if installation is still finishing or has issues
 try:
+    # pyrefly: ignore [missing-import]
     import face_recognition
 except ImportError:
     print("Warning: face_recognition not found. Face login will be disabled until installed.")
@@ -113,6 +114,109 @@ def get_client_ip():
         ip = ip.replace("::ffff:", "")
         
     return ip
+
+def send_session_end_emails(session):
+    if not session:
+        return
+    
+    subj = session.get("subject")
+    start_at = session.get("start_at")
+    if not start_at or not subj:
+        print("[EMAIL END OF SESSION] Missing subject or start time, skipping.")
+        return
+        
+    prog = session.get("programme")
+    college = session.get("college")
+    branch = session.get("branch")
+    sem = session.get("semester")
+    sections = session.get("sections", [])
+    
+    if not sections:
+        print("[EMAIL END OF SESSION] No sections specified in this session. Skipping emails.")
+        return
+    
+    # 1. Query all students matching this session's class details
+    def ci_reg(val): return {"$regex": f"^{str(val).strip()}$", "$options": "i"}
+    section_queries = [{"section": ci_reg(sec)} for sec in sections]
+
+    filter_query = {
+        "programme": ci_reg(prog),
+        "branch": ci_reg(branch),
+        "semester": ci_reg(sem),
+        "$or": section_queries,
+        "$and": [
+            {"$or": [
+                {"college": ci_reg(college)},
+                {"college": {"$exists": False}},
+                {"college": ""}
+            ]}
+        ]
+    }
+    
+    students = list(db.students.find(filter_query))
+    if not students:
+        print("[EMAIL END OF SESSION] No students found matching criteria.")
+        return
+    
+    print(f"[EMAIL END OF SESSION] Found {len(students)} potential students in this session. Querying attendance records...")
+    
+    # 2. Get all attendance logs for these students on or after start_at
+    student_ids = [s["_id"] for s in students]
+    
+    logs = list(db.attendance.find({
+        "student_id": {"$in": student_ids},
+        "subject": subj,
+        "date": {"$gte": start_at.strftime("%Y-%m-%d")}
+    }))
+    
+    # Map student_id (as string) to their matching attendance log (if any)
+    present_records = {}
+    for log in logs:
+        try:
+            entry_dt = datetime.strptime(
+                f"{log['date']} {log['time']}",
+                "%Y-%m-%d %H:%M:%S"
+            )
+            if entry_dt >= start_at:
+                present_records[str(log["student_id"])] = log
+        except Exception:
+            pass
+            
+    # 3. For each student, check if they are in present_records and send present or absent email
+    email_count = 0
+    from email_service import send_attendance_email
+    today_str = datetime.now().strftime("%Y-%m-%d")
+    faculty_name = session.get("faculty_name", "Department Faculty")
+    for s in students:
+        s_id_str = str(s["_id"])
+        try:
+            if s_id_str in present_records:
+                log = present_records[s_id_str]
+                send_attendance_email(
+                    student_email=s.get("email"),
+                    student_name=s.get("name", "Student"),
+                    subject_name=subj,
+                    date_str=log["date"],
+                    time_str=log["time"],
+                    status="PRESENT",
+                    faculty_name=faculty_name
+                )
+            else:
+                send_attendance_email(
+                    student_email=s.get("email"),
+                    student_name=s.get("name", "Student"),
+                    subject_name=subj,
+                    date_str=today_str,
+                    time_str="--:--",
+                    status="ABSENT",
+                    faculty_name=faculty_name
+                )
+            email_count += 1
+        except Exception as mail_err:
+            print(f"[EMAIL ERROR] Failed to send email for student {s.get('name')}: {mail_err}")
+            
+    print(f"[EMAIL END OF SESSION] Dispatched {email_count} emails for subject '{subj}' starting at {start_at}.")
+
 # ---------- FACULTY ROUTES ----------
 
 @app.route("/api/faculty/register", methods=["POST"])
@@ -423,6 +527,7 @@ def start_session():
                 "subject": data.get("subject"),
                 "start_at": datetime.now(),
                 "is_active": True,
+                "emails_sent": False,
                 "faculty_name": faculty_name
             }
         },
@@ -532,7 +637,18 @@ def session_stats():
     })
 @app.route("/api/session/stop", methods=["POST"])
 def stop_session():
-    db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
+    session = db.active_session.find_one({"id": 1})
+    if session and session.get("is_active"):
+        if not session.get("emails_sent"):
+            db.active_session.update_one(
+                {"id": 1},
+                {"$set": {"is_active": False, "emails_sent": True}}
+            )
+            send_session_end_emails(session)
+        else:
+            db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
+    else:
+        db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
     return jsonify({"success": True, "message": "Session stopped"})
 
 @app.route("/api/session/status", methods=["GET"])
@@ -552,7 +668,14 @@ def session_status():
         
         # Auto-expire if time is up
         if remaining_seconds <= 0:
-            db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
+            if not session.get("emails_sent"):
+                db.active_session.update_one(
+                    {"id": 1},
+                    {"$set": {"is_active": False, "emails_sent": True}}
+                )
+                send_session_end_emails(session)
+            else:
+                db.active_session.update_one({"id": 1}, {"$set": {"is_active": False}})
             is_active = False
             
     return jsonify({
@@ -730,6 +853,7 @@ def toggle_attendance():
                 {"$set": {"time": now_time, "source": source, "faculty_name": faculty_name}},
                 upsert=True
             )
+
             return jsonify({"success": True, "time": now_time, "source": source})
         else:
             db.attendance.delete_one({"student_id": obj_id, "subject": subject, "date": today})
